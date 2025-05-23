@@ -1,17 +1,10 @@
-// src/app/tag/[id]/page.tsx
+'use client';
 
-interface PageProps {
-  params: {
-    id: string;
-  };
-}
-
-export default function TagPage({ params }: PageProps) {
+export default function Page({ params }: { params: { id: string } }) {
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>Tag ID: {params.id}</h1>
-      <p>This is a dynamic page for the tag "{params.id}"</p>
-    </div>
+    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>Dynamic Tag Page</h1>
+      <p>You are viewing tag: <strong>{params.id}</strong></p>
+    </main>
   );
 }
-
