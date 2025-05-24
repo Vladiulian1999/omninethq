@@ -1,10 +1,16 @@
-'use client';
+import { FC } from 'react';
 
-export default function Page({ params }: { params: { id: string } }) {
-  return (
-    <main style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Dynamic Tag Page</h1>
-      <p>You are viewing tag: <strong>{params.id}</strong></p>
-    </main>
-  );
+interface TagPageProps {
+  params: { id: string };
 }
+
+const TagPage: FC<TagPageProps> = ({ params }) => {
+  return (
+    <div className="p-6 text-center">
+      <h1 className="text-2xl font-bold">Tag ID: {params.id}</h1>
+      <p className="mt-4 text-gray-600">This tag is now live and detectable via QR code!</p>
+    </div>
+  );
+};
+
+export default TagPage;
