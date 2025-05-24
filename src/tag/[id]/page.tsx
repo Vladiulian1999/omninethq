@@ -1,7 +1,11 @@
-// src/app/tag/[id]/page.tsx
+
 
 interface TagPageProps {
   params: { id: string };
+}
+
+export async function generateStaticParams() {
+  return [{ id: 'example' }]; // 👈 required to enable static generation of dynamic routes
 }
 
 export default function TagPage({ params }: TagPageProps) {
