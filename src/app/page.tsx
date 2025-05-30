@@ -1,10 +1,10 @@
-// ✅ src/app/page.tsx (Welcome Homepage for OmniNet)
+// // src/app/page.tsx
 import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-white px-6 py-16 text-center">
-      <div className="max-w-2xl">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-16 text-center">
+      <div className="max-w-2xl mx-auto">
         <h1 className="text-5xl font-extrabold mb-6">👁 OmniNet</h1>
         <p className="text-xl text-gray-600 mb-8">
           The human API. Scan to hire, rent, or request anything.
@@ -16,7 +16,6 @@ export default function Home() {
           </p>
           <p className="text-gray-700">
             A bike fixer. A tool lender. A food maker. A guide. You don&apos;t need a website — just your tag.
-
           </p>
           <p className="text-gray-700">
             One scan. Instant action.
@@ -38,6 +37,6 @@ export default function Home() {
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
