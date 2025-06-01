@@ -6,29 +6,34 @@ import { useEffect, useState } from 'react'
 export default function HeaderControls() {
   const router = useRouter()
   const [userId, setUserId] = useState<string | null>(null)
-  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (user) {
-        setUserId(user.id)
+    // Initial load
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUserId(user?.id ?? null)
+    }
+
+    getUser()
+
+    // Live session listener
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id)
       } else {
         setUserId(null)
       }
-      setChecking(false)
+    })
+
+    return () => {
+      listener.subscription.unsubscribe()
     }
-    fetchUser()
   }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.refresh() // refresh session
+    router.push('/') // optional: redirect to home
   }
-
-  if (checking) return null
 
   return userId ? (
     <div className="flex gap-4 items-center">
