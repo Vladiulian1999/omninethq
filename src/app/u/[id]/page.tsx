@@ -1,4 +1,3 @@
-// ✅ src/app/u/[id]/page.tsx (Fully Editable User Profile Page)
 'use client'
 
 import { createClient } from '@supabase/supabase-js'
@@ -38,38 +37,36 @@ export default function UserPage({ params }: { params: { id: string } }) {
   const [bio, setBio] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-
   const isOwner = sessionId === userId
 
-  useEffect(() => {
-   console.log('Querying user ID:', userId) 
-    const fetchData = async () => {
-      const { data: tagData, error: tagError } = await supabase
-        .from('messages')
-        .select('id, title, description, category, views, featured, created_at')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+  const fetchAll = async () => {
+    const { data: tagData, error: tagError } = await supabase
+      .from('messages')
+      .select('id, title, description, category, views, featured, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
 
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('email, username, avatar_url, bio')
-        .eq('id', userId)
-        .single()
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('email, username, avatar_url, bio')
+      .eq('id', userId)
+      .maybeSingle()
 
-      const { data: session } = await supabase.auth.getUser()
+    const { data: session } = await supabase.auth.getUser()
 
-      if (tagError || userError) {
-        setError(tagError?.message || userError?.message || 'Error fetching data')
-      } else {
-        setTags(tagData || [])
-        setUser(userData)
-        setUsername(userData?.username || '')
-        setBio(userData?.bio || '')
-        setSessionId(session?.user?.id || null)
-      }
+    if (tagError || userError) {
+      setError(tagError?.message || userError?.message || 'Error fetching data')
+    } else {
+      setTags(tagData || [])
+      setUser(userData || null)
+      setUsername(userData?.username || '')
+      setBio(userData?.bio || '')
+      setSessionId(session?.user?.id || null)
     }
+  }
 
-    fetchData()
+  useEffect(() => {
+    fetchAll()
   }, [userId])
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,9 +74,9 @@ export default function UserPage({ params }: { params: { id: string } }) {
     if (!file || !userId) return
 
     const filePath = `avatars/${userId}`
-    const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, {
-      upsert: true,
-    })
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, { upsert: true })
 
     if (!uploadError) {
       const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
@@ -87,20 +84,32 @@ export default function UserPage({ params }: { params: { id: string } }) {
         .from('users')
         .update({ avatar_url: data.publicUrl })
         .eq('id', userId)
+
       if (!updateError) {
         setUser((prev) => prev ? { ...prev, avatar_url: data.publicUrl } : prev)
+      } else {
+        console.error('Error updating avatar URL:', updateError)
       }
+    } else {
+      console.error('Error uploading avatar:', uploadError)
     }
   }
 
   const handleSave = async () => {
+    const updates: any = {}
+    if (username.trim()) updates.username = username
+    if (bio.trim()) updates.bio = bio
+
     const { error } = await supabase
       .from('users')
-      .update({ username, bio })
+      .update(updates)
       .eq('id', userId)
+
     if (!error) {
-      setUser((prev) => prev ? { ...prev, username, bio } : prev)
+      await fetchAll()
       setEditing(false)
+    } else {
+      console.error('Error saving profile:', error)
     }
   }
 
@@ -145,11 +154,13 @@ export default function UserPage({ params }: { params: { id: string } }) {
               className="mt-4 border px-3 py-1 rounded w-full text-center"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              placeholder="Your name"
             />
             <textarea
               className="mt-2 border px-3 py-1 rounded w-full text-center"
               value={bio}
               onChange={(e) => setBio(e.target.value)}
+              placeholder="Your bio"
             />
             <button
               onClick={handleSave}
