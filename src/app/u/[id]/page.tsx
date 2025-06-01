@@ -76,7 +76,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
       return
     }
 
-    const filePath = `avatars/${userId}`
+    const filePath = `${userId}.png`
 
     console.log('📤 Uploading avatar to:', filePath)
 
