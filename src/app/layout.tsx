@@ -25,7 +25,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </Link>
           </div>
         </header>
-        <main className="p-4">{children}</main>
+        <main className="p-4">
+  <div className="max-w-4xl mx-auto w-full">{children}</div>
+</main>
       </body>
     </html>
   )
