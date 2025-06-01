@@ -78,21 +78,24 @@ export default function UserPage({ params }: { params: { id: string } }) {
       .from('avatars')
       .upload(filePath, file, { upsert: true })
 
-    if (!uploadError) {
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ avatar_url: data.publicUrl })
-        .eq('id', userId)
-
-      if (!updateError) {
-        setUser((prev) => prev ? { ...prev, avatar_url: data.publicUrl } : prev)
-      } else {
-        console.error('Error updating avatar URL:', updateError)
-      }
-    } else {
+    if (uploadError) {
       console.error('Error uploading avatar:', uploadError)
+      return
     }
+
+    const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ avatar_url: publicData.publicUrl })
+      .eq('id', userId)
+
+    if (updateError) {
+      console.error('Error updating avatar URL:', updateError)
+      return
+    }
+
+    await fetchAll()
   }
 
   const handleSave = async () => {
@@ -105,12 +108,13 @@ export default function UserPage({ params }: { params: { id: string } }) {
       .update(updates)
       .eq('id', userId)
 
-    if (!error) {
-      await fetchAll()
-      setEditing(false)
-    } else {
+    if (error) {
       console.error('Error saving profile:', error)
+      return
     }
+
+    await fetchAll()
+    setEditing(false)
   }
 
   if (error) {
