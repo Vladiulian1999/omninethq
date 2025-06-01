@@ -6,23 +6,31 @@ import { useEffect, useState } from 'react'
 export default function HeaderControls() {
   const router = useRouter()
   const [userId, setUserId] = useState<string | null>(null)
+  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) setUserId(user.id)
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      } else {
+        setUserId(null)
+      }
+      setChecking(false)
     }
     fetchUser()
   }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/')
+    router.refresh() // refresh session
   }
 
-  if (!userId) return null
+  if (checking) return null
 
-  return (
+  return userId ? (
     <div className="flex gap-4 items-center">
       <button
         onClick={() => router.push(`/edit/${userId}`)}
@@ -37,5 +45,12 @@ export default function HeaderControls() {
         Logout
       </button>
     </div>
+  ) : (
+    <button
+      onClick={() => router.push('/login')}
+      className="text-sm px-4 py-2 bg-black text-white rounded hover:bg-gray-800"
+    >
+      Login
+    </button>
   )
 }
