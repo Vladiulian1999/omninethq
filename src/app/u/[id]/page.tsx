@@ -71,29 +71,39 @@ export default function UserPage({ params }: { params: { id: string } }) {
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !userId) return
+    if (!file || !userId) {
+      console.error('❌ No file or user ID.')
+      return
+    }
 
     const filePath = `avatars/${userId}`
+
+    console.log('📤 Uploading avatar to:', filePath)
+
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, file, { upsert: true })
 
     if (uploadError) {
-      console.error('Error uploading avatar:', uploadError)
+      console.error('❌ Upload failed:', uploadError)
       return
     }
 
-    const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+
+    console.log('🌐 Public URL:', urlData.publicUrl)
 
     const { error: updateError } = await supabase
       .from('users')
-      .update({ avatar_url: publicData.publicUrl })
+      .update({ avatar_url: urlData.publicUrl })
       .eq('id', userId)
 
     if (updateError) {
-      console.error('Error updating avatar URL:', updateError)
+      console.error('❌ Failed to update user with avatar URL:', updateError)
       return
     }
+
+    console.log('✅ Avatar URL saved to user. Refreshing state.')
 
     await fetchAll()
   }
