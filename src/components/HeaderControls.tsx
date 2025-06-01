@@ -38,7 +38,7 @@ export default function HeaderControls() {
   return userId ? (
     <div className="flex gap-4 items-center">
       <button
-        onClick={() => router.push(`/edit/${userId}`)}
+       onClick={() => router.push(`/profile/edit`)}
         className="text-sm px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
       >
         Edit Profile
