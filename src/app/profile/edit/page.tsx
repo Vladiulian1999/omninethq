@@ -21,6 +21,8 @@ export default function EditProfilePage() {
         .eq('id', user.id)
         .maybeSingle()
 
+
+
       if (fetchError) {
         console.error('Error checking user row:', fetchError)
         return
