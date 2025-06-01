@@ -14,21 +14,17 @@ export default function EditProfilePage() {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (!user) return router.push('/login')
 
-      // First check if a row exists
       const { data: existingUser, error: fetchError } = await supabase
         .from('users')
         .select('username, bio, avatar_url')
         .eq('id', user.id)
         .maybeSingle()
 
-
-
       if (fetchError) {
         console.error('Error checking user row:', fetchError)
         return
       }
 
-      // If user doesn't exist, insert a blank row
       if (!existingUser) {
         const { error: insertError } = await supabase
           .from('users')
@@ -44,12 +40,10 @@ export default function EditProfilePage() {
           return
         }
 
-        // Set default values
         setUsername('')
         setBio('')
         setAvatarUrl('')
       } else {
-        // Set existing values
         setUsername(existingUser.username || '')
         setBio(existingUser.bio || '')
         setAvatarUrl(existingUser.avatar_url || '')
@@ -63,13 +57,14 @@ export default function EditProfilePage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
+    const updates: any = {}
+    if (username) updates.username = username
+    if (bio) updates.bio = bio
+    if (avatarUrl) updates.avatar_url = avatarUrl
+
     const { error } = await supabase
       .from('users')
-      .update({
-        username,
-        bio,
-        avatar_url: avatarUrl
-      })
+      .update(updates)
       .eq('id', user.id)
 
     if (error) {
