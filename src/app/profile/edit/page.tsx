@@ -18,25 +18,31 @@ export default function EditProfilePage() {
         .from('users')
         .select('username, bio, avatar_url')
         .eq('id', user.id)
-        .maybeSingle() // ✅ prevents crash if no row
+        .limit(1)
 
       if (error) {
         console.error('Error fetching user profile:', error)
         return
       }
 
-      if (data) {
-        setUsername(data.username || '')
-        setBio(data.bio || '')
-        setAvatarUrl(data.avatar_url || '')
-      } else {
-        // ✅ No row? Insert a blank profile for this user
-        await supabase.from('users').insert({
+      if (data && data.length === 1) {
+        setUsername(data[0].username || '')
+        setBio(data[0].bio || '')
+        setAvatarUrl(data[0].avatar_url || '')
+      } else if (data && data.length === 0) {
+        // No row found — insert a blank user profile
+        const { error: insertError } = await supabase.from('users').insert({
           id: user.id,
           username: '',
           bio: '',
           avatar_url: ''
         })
+
+        if (insertError) {
+          console.error('Error inserting blank user:', insertError)
+        }
+      } else {
+        console.warn('Multiple rows found for same user ID — check Supabase for duplicates.')
       }
     }
 
