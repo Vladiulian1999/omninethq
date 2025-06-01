@@ -10,43 +10,51 @@ export default function EditProfilePage() {
   const router = useRouter()
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+    const fetchOrCreateUser = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (!user) return router.push('/login')
 
-      const { data, error } = await supabase
+      // First check if a row exists
+      const { data: existingUser, error: fetchError } = await supabase
         .from('users')
         .select('username, bio, avatar_url')
         .eq('id', user.id)
-        .limit(1)
+        .maybeSingle()
 
-      if (error) {
-        console.error('Error fetching user profile:', error)
+      if (fetchError) {
+        console.error('Error checking user row:', fetchError)
         return
       }
 
-      if (data && data.length === 1) {
-        setUsername(data[0].username || '')
-        setBio(data[0].bio || '')
-        setAvatarUrl(data[0].avatar_url || '')
-      } else if (data && data.length === 0) {
-        // No row found — insert a blank user profile
-        const { error: insertError } = await supabase.from('users').insert({
-          id: user.id,
-          username: '',
-          bio: '',
-          avatar_url: ''
-        })
+      // If user doesn't exist, insert a blank row
+      if (!existingUser) {
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            username: '',
+            bio: '',
+            avatar_url: ''
+          })
 
         if (insertError) {
-          console.error('Error inserting blank user:', insertError)
+          console.error('Error inserting blank user row:', insertError)
+          return
         }
+
+        // Set default values
+        setUsername('')
+        setBio('')
+        setAvatarUrl('')
       } else {
-        console.warn('Multiple rows found for same user ID — check Supabase for duplicates.')
+        // Set existing values
+        setUsername(existingUser.username || '')
+        setBio(existingUser.bio || '')
+        setAvatarUrl(existingUser.avatar_url || '')
       }
     }
 
-    fetchUserData()
+    fetchOrCreateUser()
   }, [])
 
   const handleSave = async () => {
