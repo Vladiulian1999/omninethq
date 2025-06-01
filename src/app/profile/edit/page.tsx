@@ -11,19 +11,32 @@ export default function EditProfilePage() {
 
   useEffect(() => {
     const fetchUserData = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (!user) return router.push('/login')
 
       const { data, error } = await supabase
         .from('users')
         .select('username, bio, avatar_url')
         .eq('id', user.id)
-        .single()
+        .maybeSingle() // ✅ prevents crash if no row
+
+      if (error) {
+        console.error('Error fetching user profile:', error)
+        return
+      }
 
       if (data) {
         setUsername(data.username || '')
         setBio(data.bio || '')
         setAvatarUrl(data.avatar_url || '')
+      } else {
+        // ✅ No row? Insert a blank profile for this user
+        await supabase.from('users').insert({
+          id: user.id,
+          username: '',
+          bio: '',
+          avatar_url: ''
+        })
       }
     }
 
@@ -34,7 +47,7 @@ export default function EditProfilePage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    await supabase
+    const { error } = await supabase
       .from('users')
       .update({
         username,
@@ -42,6 +55,11 @@ export default function EditProfilePage() {
         avatar_url: avatarUrl
       })
       .eq('id', user.id)
+
+    if (error) {
+      console.error('Error saving profile:', error)
+      return
+    }
 
     router.push(`/u/${user.id}`)
   }
