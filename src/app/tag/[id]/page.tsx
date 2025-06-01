@@ -40,6 +40,7 @@ export default function TagPage({ params }: { params: { id: string } }) {
   const [rating, setRating] = useState<number | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [scanCount, setScanCount] = useState<number>(0)
 
   const qrRef = useRef<HTMLDivElement>(null)
 
@@ -74,9 +75,19 @@ export default function TagPage({ params }: { params: { id: string } }) {
       setUserId(data?.user?.id || null)
     }
 
+    const logScan = async () => {
+      await supabase.from('scans').insert([{ tag_id: decodedId }])
+      const { count } = await supabase
+        .from('scans')
+        .select('*', { count: 'exact', head: true })
+        .eq('tag_id', decodedId)
+      setScanCount(count || 0)
+    }
+
     fetchTag()
     fetchFeedback()
     getUser()
+    logScan()
   }, [decodedId])
 
   const handleDownload = async () => {
@@ -190,34 +201,34 @@ export default function TagPage({ params }: { params: { id: string } }) {
       </Link>
 
       <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {decodedId}</p>
+      <p className="text-xs text-gray-500 mb-1">🔢 {scanCount} scans</p>
 
       {typeof data.views === 'number' && (
         <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>
       )}
 
       <div className="flex flex-col items-center gap-3 mb-8">
-  <div ref={qrRef} className="bg-white p-3 rounded shadow">
-    <QRCode value={`https://omninethq.co.uk/tag/${decodedId}`} size={160} level="H" />
-  </div>
+        <div ref={qrRef} className="bg-white p-3 rounded shadow">
+          <QRCode value={`https://omninethq.co.uk/tag/${decodedId}`} size={160} level="H" />
+        </div>
 
-  <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
+        <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
 
-  <div className="flex gap-3 mt-2">
-    <button
-      onClick={handleDownload}
-      className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
-    >
-      📥 Download QR
-    </button>
-    <button
-      onClick={handleCopyLink}
-      className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
-    >
-      🔗 Copy Link
-    </button>
-  </div>
-</div>
-
+        <div className="flex gap-3 mt-2">
+          <button
+            onClick={handleDownload}
+            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
+          >
+            📥 Download QR
+          </button>
+          <button
+            onClick={handleCopyLink}
+            className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
+          >
+            🔗 Copy Link
+          </button>
+        </div>
+      </div>
 
       <hr className="my-8 border-gray-300" />
 
