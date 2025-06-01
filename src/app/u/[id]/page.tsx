@@ -1,9 +1,9 @@
-// src/app/u/[id]/page.tsx
+// ✅ src/app/u/[id]/page.tsx (Fully Editable User Profile Page)
+'use client'
 
 import { createClient } from '@supabase/supabase-js'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-
-export const dynamic = 'force-dynamic'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,86 +15,182 @@ type Tag = {
   title: string
   description: string
   category: string
-  views?: number
+  views: number
   featured?: boolean
+  created_at: string
 }
 
-const getCategoryBadge = (category: string) => {
-  const base = 'inline-block px-3 py-1 rounded-full text-xs font-medium'
-  switch (category) {
-    case 'rent':
-      return `${base} bg-blue-100 text-blue-800`
-    case 'sell':
-      return `${base} bg-green-100 text-green-800`
-    case 'teach':
-      return `${base} bg-yellow-100 text-yellow-800`
-    case 'help':
-      return `${base} bg-purple-100 text-purple-800`
-    default:
-      return `${base} bg-gray-100 text-gray-800`
-  }
+type UserProfile = {
+  email: string
+  username?: string
+  avatar_url?: string
+  bio?: string
 }
 
-const getCategoryEmoji = (category: string) => {
-  switch (category) {
-    case 'rent': return '🪜'
-    case 'sell': return '🛒'
-    case 'teach': return '🎓'
-    case 'help': return '🤝'
-    default: return ''
-  }
-}
-
-export default async function UserProfile({ params }: { params: { id: string } }) {
+export default function UserPage({ params }: { params: { id: string } }) {
   const userId = decodeURIComponent(params.id)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [username, setUsername] = useState('')
+  const [bio, setBio] = useState('')
 
-  const { data: tags, error } = await supabase
-    .from('messages')
-    .select('id, title, description, category, views, featured')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const isOwner = sessionId === userId
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data: tagData, error: tagError } = await supabase
+        .from('messages')
+        .select('id, title, description, category, views, featured, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email, username, avatar_url, bio')
+        .eq('id', userId)
+        .single()
+
+      const { data: session } = await supabase.auth.getUser()
+
+      if (tagError || userError) {
+        setError(tagError?.message || userError?.message || 'Error fetching data')
+      } else {
+        setTags(tagData || [])
+        setUser(userData)
+        setUsername(userData?.username || '')
+        setBio(userData?.bio || '')
+        setSessionId(session?.user?.id || null)
+      }
+    }
+
+    fetchData()
+  }, [userId])
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !userId) return
+
+    const filePath = `avatars/${userId}`
+    const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, {
+      upsert: true,
+    })
+
+    if (!uploadError) {
+      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ avatar_url: data.publicUrl })
+        .eq('id', userId)
+      if (!updateError) {
+        setUser((prev) => prev ? { ...prev, avatar_url: data.publicUrl } : prev)
+      }
+    }
+  }
+
+  const handleSave = async () => {
+    const { error } = await supabase
+      .from('users')
+      .update({ username, bio })
+      .eq('id', userId)
+    if (!error) {
+      setUser((prev) => prev ? { ...prev, username, bio } : prev)
+      setEditing(false)
+    }
+  }
 
   if (error) {
-    return (
-      <div className="p-10 text-center text-red-600">
-        <h1 className="text-2xl font-bold">Error</h1>
-        <p>{error.message}</p>
-      </div>
-    )
+    return <div className="p-10 text-center text-red-600">Error: {error}</div>
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <div className="mb-6 text-center">
-        <h1 className="text-3xl font-bold mb-1">👤 User Profile</h1>
-        <p className="text-sm text-gray-500">User ID: {userId}</p>
+    <div className="p-8 max-w-2xl mx-auto">
+      <div className="text-center mb-8">
+        {user?.avatar_url ? (
+          <img
+            src={user.avatar_url}
+            alt="User Avatar"
+            className="w-24 h-24 mx-auto rounded-full object-cover"
+          />
+        ) : (
+          <div className="w-24 h-24 mx-auto rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-3xl">
+            {user?.email?.[0].toUpperCase()}
+          </div>
+        )}
+        {isOwner && (
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleAvatarChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-blue-600 text-sm hover:underline mt-1"
+            >
+              📸 Change Avatar
+            </button>
+          </>
+        )}
+
+        {editing ? (
+          <>
+            <input
+              className="mt-4 border px-3 py-1 rounded w-full text-center"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <textarea
+              className="mt-2 border px-3 py-1 rounded w-full text-center"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+            />
+            <button
+              onClick={handleSave}
+              className="mt-2 bg-black text-white px-4 py-2 rounded hover:bg-gray-800"
+            >
+              Save
+            </button>
+          </>
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold mt-4">{user?.username || user?.email}</h1>
+            {user?.bio && <p className="text-gray-600 mt-1">{user.bio}</p>}
+            {isOwner && (
+              <button
+                onClick={() => setEditing(true)}
+                className="text-blue-600 text-sm hover:underline mt-1"
+              >
+                ✏️ Edit Profile
+              </button>
+            )}
+          </>
+        )}
       </div>
 
-      {tags && tags.length > 0 ? (
-        <ul className="space-y-6">
-          {tags.map((tag) => (
-            <li key={tag.id} className="p-4 bg-white rounded shadow border border-gray-100 hover:shadow-md transition">
-              <div className="flex justify-between items-center mb-1">
-                <Link href={`/tag/${tag.id}`}>
-                  <h2 className="text-lg font-semibold hover:underline">
-                    {getCategoryEmoji(tag.category)} {tag.title}
-                  </h2>
-                </Link>
-                <span className={getCategoryBadge(tag.category)}>{tag.category}</span>
-              </div>
-              <p className="text-gray-600 text-sm">{tag.description}</p>
-              {typeof tag.views === 'number' && (
-                <p className="text-xs text-gray-400 mt-1">👁️ {tag.views} views</p>
-              )}
-              {tag.featured && (
-                <p className="text-xs text-yellow-500 mt-1">✨ Featured</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-center text-gray-500">No tags found for this user.</p>
-      )}
+      <h2 className="text-xl font-semibold mb-4">📦 {tags.length} Tags Created</h2>
+
+      <ul className="space-y-4">
+        {tags.map((tag) => (
+          <li key={tag.id} className="border rounded p-4 shadow bg-white">
+            <div className="flex justify-between items-center mb-1">
+              <Link href={`/tag/${tag.id}`}>
+                <h3 className="text-lg font-semibold hover:underline">{tag.title}</h3>
+              </Link>
+              {tag.featured && <span className="text-yellow-500 text-sm">✨</span>}
+            </div>
+            <p className="text-sm text-gray-600 mb-1">{tag.description}</p>
+            <p className="text-xs text-gray-400">
+              📅 {new Date(tag.created_at).toLocaleDateString()} | 👁️ {tag.views} views
+            </p>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
