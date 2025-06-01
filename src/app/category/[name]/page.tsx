@@ -1,9 +1,14 @@
+'use client';
 
-import React from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+import { useParams } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 
-export const dynamic = 'force-dynamic';
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type Tag = {
   id: string;
@@ -43,19 +48,43 @@ const getCategoryEmoji = (category: string) => {
   }
 };
 
-export default async function CategoryPage({ params }: { params: { name: string } }) {
-  const category = decodeURIComponent(params.name);
+export default function CategoryPage() {
+  const { name } = useParams();
+  const [tags, setTags] = useState<Tag[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: tags, error } = await supabase
-    .from('messages')
-    .select('id, title, description, category')
-    .eq('category', category);
+  useEffect(() => {
+    if (!name || typeof name !== 'string') return;
 
-  if (error || !tags) {
+    const fetchTags = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('id, title, description, category')
+        .eq('category', name);
+
+      if (error) {
+        setError(error.message);
+      } else {
+        setTags(data);
+      }
+    };
+
+    fetchTags();
+  }, [name]);
+
+  if (error) {
     return (
       <div className="p-10 text-center text-red-600">
         <h1 className="text-2xl font-bold">Error loading category</h1>
-        <p>{error?.message || 'No data found.'}</p>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  if (!tags) {
+    return (
+      <div className="p-10 text-center text-gray-600">
+        <p>Loading tags...</p>
       </div>
     );
   }
@@ -69,7 +98,7 @@ export default async function CategoryPage({ params }: { params: { name: string 
       </div>
 
       <h1 className="text-3xl font-bold mb-6 text-center capitalize">
-        {category} tags
+        {name} tags
       </h1>
 
       {tags.length === 0 ? (
@@ -85,7 +114,6 @@ export default async function CategoryPage({ params }: { params: { name: string 
       ) : (
         <ul className="space-y-6">
           {tags.map((tag: Tag) => (
-
             <li
               key={tag.id}
               className="p-4 bg-white shadow rounded border border-gray-100 hover:shadow-md transition"
