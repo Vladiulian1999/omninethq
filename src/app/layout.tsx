@@ -2,6 +2,7 @@
 import './globals.css'
 import Link from 'next/link'
 import { ReactNode } from 'react'
+import HeaderControls from '@/components/HeaderControls'
 
 export const metadata = {
   title: 'OmniNet',
@@ -16,18 +17,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/" className="font-bold text-xl">
             🧩 OmniNet
           </Link>
+          {/* Right side: auth controls */}
           <div className="flex gap-4 items-center">
-            <Link
-              href="/login"
-              className="text-sm bg-black text-white px-3 py-1 rounded hover:bg-gray-800"
-            >
-              Login
-            </Link>
+            <HeaderControls />
           </div>
         </header>
         <main className="p-4">
-  <div className="max-w-4xl mx-auto w-full">{children}</div>
-</main>
+          <div className="max-w-4xl mx-auto w-full">{children}</div>
+        </main>
       </body>
     </html>
   )

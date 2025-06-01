@@ -42,6 +42,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
   const isOwner = sessionId === userId
 
   useEffect(() => {
+   console.log('Querying user ID:', userId) 
     const fetchData = async () => {
       const { data: tagData, error: tagError } = await supabase
         .from('messages')
