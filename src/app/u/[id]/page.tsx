@@ -1,13 +1,10 @@
 'use client'
 
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-const supabase = createClientComponentClient()
-
-
-
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
+const supabase = createClientComponentClient()
 
 type Tag = {
   id: string
@@ -76,9 +73,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
       return
     }
 
-  const filePath = `${userId}.png`
-
-
+    const filePath = `${userId}.png`
     console.log('📤 Uploading avatar to:', filePath)
 
     const { error: uploadError } = await supabase.storage
