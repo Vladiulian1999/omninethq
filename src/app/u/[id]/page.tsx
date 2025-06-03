@@ -34,7 +34,6 @@ export default function UserPage({ params }: { params: { id: string } }) {
   const [bio, setBio] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const isOwner = sessionId === userId
 
   const fetchAll = async () => {
     const { data: tagData, error: tagError } = await supabase
@@ -141,22 +140,25 @@ export default function UserPage({ params }: { params: { id: string } }) {
             {user?.email?.[0].toUpperCase()}
           </div>
         )}
-        {isOwner && (
-          <>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleAvatarChange}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="text-blue-600 text-sm hover:underline mt-1"
-            >
-              📸 Change Avatar
-            </button>
-          </>
-        )}
+
+        {/* DEBUG: Always show upload for now */}
+        <>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleAvatarChange}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-blue-600 text-sm hover:underline mt-1"
+          >
+            📸 Change Avatar (Debug Mode)
+          </button>
+          <pre className="text-xs text-gray-400 mt-2">
+            {JSON.stringify({ sessionId, userId }, null, 2)}
+          </pre>
+        </>
 
         {editing ? (
           <>
@@ -183,14 +185,12 @@ export default function UserPage({ params }: { params: { id: string } }) {
           <>
             <h1 className="text-2xl font-bold mt-4">{user?.username || user?.email}</h1>
             {user?.bio && <p className="text-gray-600 mt-1">{user.bio}</p>}
-            {isOwner && (
-              <button
-                onClick={() => setEditing(true)}
-                className="text-blue-600 text-sm hover:underline mt-1"
-              >
-                ✏️ Edit Profile
-              </button>
-            )}
+            <button
+              onClick={() => setEditing(true)}
+              className="text-blue-600 text-sm hover:underline mt-1"
+            >
+              ✏️ Edit Profile
+            </button>
           </>
         )}
       </div>
