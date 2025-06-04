@@ -2,8 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import UserClientPage from './_client'
 
-export default async function UserPageWrapper({ params }: { params: { id: string } }) {
-  // ✅ Await cookies() — it's a Promise<ReadonlyRequestCookies>
+export default async function UserPageWrapper({
+  params,
+}: {
+  params: { id: string }
+}) {
+  // ✅ FIXED: Await the cookies() call
   const cookieStore = await cookies()
 
   const supabase = createServerClient(
@@ -11,11 +15,9 @@ export default async function UserPageWrapper({ params }: { params: { id: string
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value ?? null
-        },
-        set() {},
-        remove() {},
+        get: (name: string) => cookieStore.get(name)?.value ?? null,
+        set: () => {},
+        remove: () => {},
       },
     }
   )
