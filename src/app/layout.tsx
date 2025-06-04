@@ -1,12 +1,8 @@
-// src/app/layout.tsx
-
 import './globals.css'
 import Link from 'next/link'
-import { ReactNode, useState } from 'react'
+import { ReactNode } from 'react'
 import HeaderControls from '@/components/HeaderControls'
-
-import { createBrowserSupabaseClient } from '@supabase/auth-helpers-nextjs'
-import { SessionContextProvider } from '@supabase/auth-helpers-react'
+import Providers from './providers'
 
 export const metadata = {
   title: 'OmniNet',
@@ -14,12 +10,10 @@ export const metadata = {
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  const [supabaseClient] = useState(() => createBrowserSupabaseClient())
-
   return (
     <html lang="en">
       <body className="min-h-screen bg-gray-50 text-black">
-        <SessionContextProvider supabaseClient={supabaseClient}>
+        <Providers>
           <header className="p-4 border-b bg-white shadow-sm flex justify-between items-center">
             <Link href="/" className="font-bold text-xl">
               🧩 OmniNet
@@ -31,7 +25,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <main className="p-4">
             <div className="max-w-4xl mx-auto w-full">{children}</div>
           </main>
-        </SessionContextProvider>
+        </Providers>
       </body>
     </html>
   )
