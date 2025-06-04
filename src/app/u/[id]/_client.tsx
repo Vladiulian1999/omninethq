@@ -43,7 +43,7 @@ export default function UserClientPage({
   const [bio, setBio] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Hydrate the client‐side Supabase session from the server‐fetched session
+  // ─── HYDRATE CLIENT SESSION FROM SERVER ───────────────────────────────────
   useEffect(() => {
     if (session?.access_token && session?.refresh_token) {
       supabase.auth.setSession({
@@ -54,6 +54,7 @@ export default function UserClientPage({
     }
   }, [session])
 
+  // ─── FETCH TAGS & USER PROFILE ─────────────────────────────────────────────
   const fetchAll = async () => {
     const { data: tagData, error: tagError } = await supabase
       .from('messages')
@@ -81,6 +82,7 @@ export default function UserClientPage({
     fetchAll()
   }, [userId])
 
+  // ─── HANDLE AVATAR UPLOAD ───────────────────────────────────────────────────
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !sessionUserId) {
@@ -119,13 +121,13 @@ export default function UserClientPage({
     await fetchAll()
   }
 
+  // ─── HANDLE PROFILE SAVE (USERNAME, BIO) ───────────────────────────────────
   const handleSave = async () => {
     const updates: any = {}
     if (username.trim()) updates.username = username
     if (bio.trim()) updates.bio = bio
 
     const { error } = await supabase.from('users').update(updates).eq('id', userId)
-
     if (error) {
       console.error('Error saving profile:', error)
       return
@@ -226,3 +228,5 @@ export default function UserClientPage({
     </div>
   )
 }
+
+
