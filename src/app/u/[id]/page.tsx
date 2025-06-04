@@ -71,6 +71,12 @@ export default function UserPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     fetchAll()
   }, [userId])
+useEffect(() => {
+  supabase.auth.getSession().then(({ data, error }) => {
+    console.log('🔥 Full session result:', data)
+    console.log('🚫 Error (if any):', error)
+  })
+}, [])
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
