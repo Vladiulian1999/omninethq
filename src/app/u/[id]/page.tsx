@@ -28,7 +28,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
   const [tags, setTags] = useState<Tag[]>([])
   const [user, setUser] = useState<UserProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [username, setUsername] = useState('')
   const [bio, setBio] = useState('')
@@ -48,7 +48,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
       .eq('id', userId)
       .maybeSingle()
 
-    const { data: session } = await supabase.auth.getUser()
+    const { data: session } = await supabase.auth.getSession()
 
     if (tagError || userError) {
       setError(tagError?.message || userError?.message || 'Error fetching data')
@@ -57,8 +57,10 @@ export default function UserPage({ params }: { params: { id: string } }) {
       setUser(userData || null)
       setUsername(userData?.username || '')
       setBio(userData?.bio || '')
-      setSessionId(session?.user?.id || null)
+      setSessionUserId(session?.session?.user?.id || null)
     }
+
+    console.log('💡 Session:', session)
   }
 
   useEffect(() => {
@@ -67,13 +69,14 @@ export default function UserPage({ params }: { params: { id: string } }) {
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !userId) {
-      console.error('❌ No file or user ID.')
+
+    if (!file || !sessionUserId) {
+      console.error('❌ No file or valid user session.')
       return
     }
 
     const ext = file.name.split('.').pop() || 'jpg'
-    const filePath = `${userId}.${ext}`
+    const filePath = `${sessionUserId}.${ext}`
     console.log('📤 Uploading avatar to:', filePath)
 
     const { error: uploadError } = await supabase.storage
@@ -98,7 +101,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
     const { error: updateError } = await supabase
       .from('users')
       .update({ avatar_url: urlData.publicUrl })
-      .eq('id', userId)
+      .eq('id', sessionUserId)
 
     if (updateError) {
       console.error('❌ Failed to update user with avatar URL:', updateError)
@@ -160,7 +163,7 @@ export default function UserPage({ params }: { params: { id: string } }) {
           📸 Change Avatar
         </button>
         <pre className="text-xs text-gray-400 mt-2">
-          {JSON.stringify({ sessionId, userId }, null, 2)}
+          {JSON.stringify({ sessionUserId, userId }, null, 2)}
         </pre>
 
         {editing ? (
