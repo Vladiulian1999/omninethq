@@ -72,19 +72,26 @@ export default function UserPage({ params }: { params: { id: string } }) {
       return
     }
 
-    const filePath = `${userId}.png`
+    const ext = file.name.split('.').pop() || 'jpg'
+    const filePath = `${userId}.${ext}`
     console.log('📤 Uploading avatar to:', filePath)
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(filePath, file, { upsert: true })
+      .upload(filePath, file, {
+        upsert: true,
+        contentType: file.type,
+        cacheControl: '3600'
+      })
 
     if (uploadError) {
       console.error('❌ Upload failed:', uploadError)
       return
     }
 
-    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+    const { data: urlData } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath)
 
     console.log('🌐 Public URL:', urlData.publicUrl)
 
@@ -99,7 +106,6 @@ export default function UserPage({ params }: { params: { id: string } }) {
     }
 
     console.log('✅ Avatar URL saved to user. Refreshing state.')
-
     await fetchAll()
   }
 
@@ -141,24 +147,21 @@ export default function UserPage({ params }: { params: { id: string } }) {
           </div>
         )}
 
-        {/* DEBUG: Always show upload for now */}
-        <>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleAvatarChange}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="text-blue-600 text-sm hover:underline mt-1"
-          >
-            📸 Change Avatar (Debug Mode)
-          </button>
-          <pre className="text-xs text-gray-400 mt-2">
-            {JSON.stringify({ sessionId, userId }, null, 2)}
-          </pre>
-        </>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleAvatarChange}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="text-blue-600 text-sm hover:underline mt-1"
+        >
+          📸 Change Avatar
+        </button>
+        <pre className="text-xs text-gray-400 mt-2">
+          {JSON.stringify({ sessionId, userId }, null, 2)}
+        </pre>
 
         {editing ? (
           <>
