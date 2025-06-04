@@ -9,13 +9,12 @@ export default async function UserPageWrapper({
 }) {
   //
   // ─── 1. FETCH THE COOKIE OBJECT ─────────────────────────────────────────
-  //      Notice the `await` here—this ensures `cookieStore` is a
-  //      ReadonlyRequestCookies, not a Promise<ReadonlyRequestCookies>.
+  //      We `await` cookies() so that 'cookieStore' is a ReadonlyRequestCookies.
   //
   const cookieStore = await cookies()
 
   //
-  // ─── 2. BUILD A SUPABASE SERVER CLIENT WITH COOKIE-BASED AUTH ───────────
+  // ─── 2. BUILD A SUPABASE SERVER CLIENT WITH COOKIE‐BASED AUTH ───────────
   //
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,14 +22,13 @@ export default async function UserPageWrapper({
     {
       cookies: {
         get: (name: string) => {
-          // Now `cookieStore.get(name)` is valid because `cookieStore` isn’t a Promise
           return cookieStore.get(name)?.value ?? null
         },
         set: () => {
-          // no-op (we only need `.get(...)` here)
+          /* no‐op */
         },
         remove: () => {
-          // no-op
+          /* no‐op */
         },
       },
     }
@@ -38,15 +36,15 @@ export default async function UserPageWrapper({
 
   //
   // ─── 3. GET THE CURRENT SESSION (IF ANY) FROM SUPABASE ────────────────────
-  //      We also `await` getSession() so that `session` is not a Promise.
   //
   const {
     data: { session },
   } = await supabase.auth.getSession()
 
   //
-  // ─── 4. PASS `session` (which contains access_token & refresh_token) ───────
+  // ─── 4. PASS `session` & `params` INTO THE CLIENT ────────────────────────
   //
   return <UserClientPage params={params} session={session} />
 }
+
 

@@ -33,7 +33,7 @@ export default function UserClientPage({
   params: { id: string }
   session: any
 }) {
-  const userId = decodeURIComponent(params.id)
+  const userId = params.id ? decodeURIComponent(params.id) : ''
   const [tags, setTags] = useState<Tag[]>([])
   const [user, setUser] = useState<UserProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,7 +43,9 @@ export default function UserClientPage({
   const [bio, setBio] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // ─── HYDRATE CLIENT SESSION FROM SERVER ───────────────────────────────────
+  //
+  // ─── 1. SESSIONS: HYDRATE CLIENT SESSION FROM SERVER ───────────────────────
+  //
   useEffect(() => {
     if (session?.access_token && session?.refresh_token) {
       supabase.auth.setSession({
@@ -54,8 +56,16 @@ export default function UserClientPage({
     }
   }, [session])
 
-  // ─── FETCH TAGS & USER PROFILE ─────────────────────────────────────────────
+  //
+  // ─── 2. FETCH TAGS & USER PROFILE ─────────────────────────────────────────
+  //      Only run if `userId` is non‐empty.
+  //
   const fetchAll = async () => {
+    if (!userId) {
+      // If userId is empty or undefined, bail out early
+      return
+    }
+
     const { data: tagData, error: tagError } = await supabase
       .from('messages')
       .select('id, title, description, category, views, featured, created_at')
@@ -82,7 +92,9 @@ export default function UserClientPage({
     fetchAll()
   }, [userId])
 
-  // ─── HANDLE AVATAR UPLOAD ───────────────────────────────────────────────────
+  //
+  // ─── 3. HANDLE AVATAR UPLOAD ───────────────────────────────────────────────
+  //
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !sessionUserId) {
@@ -121,8 +133,15 @@ export default function UserClientPage({
     await fetchAll()
   }
 
-  // ─── HANDLE PROFILE SAVE (USERNAME, BIO) ───────────────────────────────────
+  //
+  // ─── 4. HANDLE PROFILE SAVE (USERNAME, BIO) ───────────────────────────────
+  //
   const handleSave = async () => {
+    if (!userId) {
+      console.warn('No valid userId; cannot save profile.')
+      return
+    }
+
     const updates: any = {}
     if (username.trim()) updates.username = username
     if (bio.trim()) updates.bio = bio
@@ -135,6 +154,13 @@ export default function UserClientPage({
 
     await fetchAll()
     setEditing(false)
+  }
+
+  //
+  // ─── 5. RENDER: Show “Loading…” if userId is empty; else show profile & tags
+  //
+  if (!userId) {
+    return <div className="p-10 text-center">Loading…</div>
   }
 
   if (error) {
@@ -228,5 +254,3 @@ export default function UserClientPage({
     </div>
   )
 }
-
-
