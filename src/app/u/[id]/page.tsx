@@ -1,7 +1,6 @@
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
-
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 
@@ -9,7 +8,6 @@ const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
-
 
 type Tag = {
   id: string
@@ -40,6 +38,21 @@ export default function UserPage({ params }: { params: { id: string } }) {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const fetchSession = async () => {
+    const { data } = await supabase.auth.getSession()
+
+    if (data?.session?.user?.id) {
+      setSessionUserId(data.session.user.id)
+    } else {
+      const { data: refreshed, error } = await supabase.auth.refreshSession()
+      if (refreshed?.session?.user?.id) {
+        setSessionUserId(refreshed.session.user.id)
+      } else {
+        console.warn('❌ Unable to refresh session:', error)
+      }
+    }
+  }
+
   const fetchAll = async () => {
     const { data: tagData, error: tagError } = await supabase
       .from('messages')
@@ -53,8 +66,6 @@ export default function UserPage({ params }: { params: { id: string } }) {
       .eq('id', userId)
       .maybeSingle()
 
-    const { data: session } = await supabase.auth.getSession()
-
     if (tagError || userError) {
       setError(tagError?.message || userError?.message || 'Error fetching data')
     } else {
@@ -62,21 +73,13 @@ export default function UserPage({ params }: { params: { id: string } }) {
       setUser(userData || null)
       setUsername(userData?.username || '')
       setBio(userData?.bio || '')
-      setSessionUserId(session?.session?.user?.id || null)
     }
-
-    console.log('💡 Session:', session)
   }
 
   useEffect(() => {
+    fetchSession()
     fetchAll()
   }, [userId])
-useEffect(() => {
-  supabase.auth.getSession().then(({ data, error }) => {
-    console.log('🔥 Full session result:', data)
-    console.log('🚫 Error (if any):', error)
-  })
-}, [])
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -106,8 +109,6 @@ useEffect(() => {
     const { data: urlData } = supabase.storage
       .from('avatars')
       .getPublicUrl(filePath)
-
-    console.log('🌐 Public URL:', urlData.publicUrl)
 
     const { error: updateError } = await supabase
       .from('users')
