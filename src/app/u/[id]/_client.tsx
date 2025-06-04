@@ -40,7 +40,6 @@ export default function UserClientPage({
 }) {
   const userId = decodeURIComponent(params.id)
 
-  // ─── Client state
   const [tags, setTags] = useState<Tag[]>(initialTags)
   const [user, setUser] = useState<UserProfile | null>(initialUser)
   const [error, setError] = useState<string | null>(null)
@@ -50,59 +49,29 @@ export default function UserClientPage({
   const [bio, setBio] = useState(initialUser?.bio || '')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // ─── 1. Hydrate the Supabase client with the session (if any)
+  // Hydrate Supabase client with session from SSR/SSG
   useEffect(() => {
     if (session?.access_token && session?.refresh_token) {
       supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
       })
-      setSessionUserId(session.user.id)
+      setSessionUserId(session.user?.id ?? null)
+    } else {
+      setSessionUserId(null)
     }
   }, [session])
 
-  // ─── 2. (Optional) If you want to re‐fetch profile/tags on the client,
-  // you can uncomment this block. Otherwise, we rely on initialUser & initialTags.
-  /*
-  useEffect(() => {
-    async function refetch() {
-      const { data: tagData, error: tagError } = await supabase
-        .from('messages')
-        .select('id, title, description, category, views, featured, created_at')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('email, username, avatar_url, bio')
-        .eq('id', userId)
-        .maybeSingle()
-
-      if (tagError || userError) {
-        setError(tagError?.message || userError?.message || 'Error fetching data')
-      } else {
-        setTags(tagData || [])
-        setUser(userData || null)
-        setUsername(userData?.username || '')
-        setBio(userData?.bio || '')
-      }
-    }
-    refetch()
-  }, [userId])
-  */
-
-  // ─── 3. Handle avatar upload (client‐side)
+  // --- AVATAR UPLOAD HANDLER ---
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !sessionUserId) {
       console.error('❌ No file or valid user session.')
       return
     }
-
     const ext = file.name.split('.').pop() || 'jpg'
     const filePath = `${sessionUserId}.${ext}`
 
-    // a) Upload to Supabase storage
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, file, {
@@ -116,10 +85,8 @@ export default function UserClientPage({
       return
     }
 
-    // b) Get its public URL
     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
 
-    // c) Save URL to the "users" table
     const { error: updateError } = await supabase
       .from('users')
       .update({ avatar_url: urlData.publicUrl })
@@ -130,11 +97,10 @@ export default function UserClientPage({
       return
     }
 
-    // d) Reflect on the client immediately
     setUser((prev) => (prev ? { ...prev, avatar_url: urlData.publicUrl } : prev))
   }
 
-  // ─── 4. Handle saving username and bio
+  // --- PROFILE SAVE HANDLER ---
   const handleSave = async () => {
     const updates: any = {}
     if (username.trim()) updates.username = username
@@ -150,17 +116,16 @@ export default function UserClientPage({
       return
     }
 
-    // Update local state immediately
     setUser((prev) => (prev ? { ...prev, username, bio } : prev))
     setEditing(false)
   }
 
-  // ─── 5. Render any error state
+  // --- RENDER ANY ERROR STATE ---
   if (error) {
     return <div className="p-10 text-center text-red-600">Error: {error}</div>
   }
 
-  // ─── 6. Render profile & tags
+  // --- MAIN RENDER ---
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <div className="text-center mb-8">
