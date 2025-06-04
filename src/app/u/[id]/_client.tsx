@@ -33,7 +33,7 @@ export default function UserClientPage({
   params: { id: string }
   session: any
 }) {
-  const userId = params.id ? decodeURIComponent(params.id) : ''
+  const userId = decodeURIComponent(params.id)
   const [tags, setTags] = useState<Tag[]>([])
   const [user, setUser] = useState<UserProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -41,10 +41,11 @@ export default function UserClientPage({
   const [editing, setEditing] = useState(false)
   const [username, setUsername] = useState('')
   const [bio, setBio] = useState('')
+  const [loading, setLoading] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   //
-  // ─── 1. SESSIONS: HYDRATE CLIENT SESSION FROM SERVER ───────────────────────
+  // ─── 1. HYDRATE CLIENT SESSION FROM SERVER ─────────────────────────────────
   //
   useEffect(() => {
     if (session?.access_token && session?.refresh_token) {
@@ -53,25 +54,26 @@ export default function UserClientPage({
         refresh_token: session.refresh_token,
       })
       setSessionUserId(session.user.id)
+    } else {
+      // If session is null, leave sessionUserId as null.
+      // We still continue to load data below.
     }
   }, [session])
 
   //
-  // ─── 2. FETCH TAGS & USER PROFILE ─────────────────────────────────────────
-  //      Only run if `userId` is non‐empty.
+  // ─── 2. FETCH TAGS & PROFILE ONCE (regardless of `sessionUserId`) ───────────
   //
   const fetchAll = async () => {
-    if (!userId) {
-      // If userId is empty or undefined, bail out early
-      return
-    }
+    setLoading(true)
 
+    // 2a. Grab all “messages” (tags) for this userId (based on URL param)
     const { data: tagData, error: tagError } = await supabase
       .from('messages')
       .select('id, title, description, category, views, featured, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
 
+    // 2b. Grab this user’s profile info (email, username, avatar_url, bio)
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('email, username, avatar_url, bio')
@@ -86,14 +88,18 @@ export default function UserClientPage({
       setUsername(userData?.username || '')
       setBio(userData?.bio || '')
     }
+
+    setLoading(false)
   }
 
+  // Fire off the first fetch on mount
   useEffect(() => {
     fetchAll()
   }, [userId])
 
   //
   // ─── 3. HANDLE AVATAR UPLOAD ───────────────────────────────────────────────
+  //      Only runs if sessionUserId is set (i.e. user is truly logged in)
   //
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -105,6 +111,7 @@ export default function UserClientPage({
     const ext = file.name.split('.').pop() || 'jpg'
     const filePath = `${sessionUserId}.${ext}`
 
+    // 3a. Upload to Supabase Storage “avatars” bucket
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(filePath, file, {
@@ -118,8 +125,10 @@ export default function UserClientPage({
       return
     }
 
+    // 3b. Retrieve the public URL
     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
 
+    // 3c. Save that URL into the “users” table
     const { error: updateError } = await supabase
       .from('users')
       .update({ avatar_url: urlData.publicUrl })
@@ -130,25 +139,25 @@ export default function UserClientPage({
       return
     }
 
+    // 3d. Refresh data so the new avatar appears immediately
     await fetchAll()
   }
 
   //
-  // ─── 4. HANDLE PROFILE SAVE (USERNAME, BIO) ───────────────────────────────
+  // ─── 4. HANDLE SAVING USERNAME / BIO ────────────────────────────────────────
   //
   const handleSave = async () => {
-    if (!userId) {
-      console.warn('No valid userId; cannot save profile.')
-      return
-    }
-
     const updates: any = {}
     if (username.trim()) updates.username = username
     if (bio.trim()) updates.bio = bio
 
-    const { error } = await supabase.from('users').update(updates).eq('id', userId)
-    if (error) {
-      console.error('Error saving profile:', error)
+    const { error: saveError } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId)
+
+    if (saveError) {
+      console.error('Error saving profile:', saveError)
       return
     }
 
@@ -157,16 +166,19 @@ export default function UserClientPage({
   }
 
   //
-  // ─── 5. RENDER: Show “Loading…” if userId is empty; else show profile & tags
+  // ─── 5. RENDER “LOADING…” UNTIL we have data or error ─────────────────────
   //
-  if (!userId) {
-    return <div className="p-10 text-center">Loading…</div>
+  if (loading) {
+    return <div className="p-10 text-center text-gray-600">Loading…</div>
   }
 
   if (error) {
     return <div className="p-10 text-center text-red-600">Error: {error}</div>
   }
 
+  //
+  // ─── 6. RENDER THE PROFILE + TAGS ─────────────────────────────────────────
+  //
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <div className="text-center mb-8">
@@ -191,6 +203,7 @@ export default function UserClientPage({
         <button
           onClick={() => fileInputRef.current?.click()}
           className="text-blue-600 text-sm hover:underline mt-1"
+          disabled={!sessionUserId} /* disable if not logged in */
         >
           📸 Change Avatar
         </button>
@@ -236,17 +249,17 @@ export default function UserClientPage({
       <h2 className="text-xl font-semibold mb-4">📦 {tags.length} Tags Created</h2>
 
       <ul className="space-y-4">
-        {tags.map((tag) => (
-          <li key={tag.id} className="border rounded p-4 shadow bg-white">
+        {tags.map((tagItem) => (
+          <li key={tagItem.id} className="border rounded p-4 shadow bg-white">
             <div className="flex justify-between items-center mb-1">
-              <Link href={`/tag/${tag.id}`}>
-                <h3 className="text-lg font-semibold hover:underline">{tag.title}</h3>
+              <Link href={`/tag/${tagItem.id}`}>
+                <h3 className="text-lg font-semibold hover:underline">{tagItem.title}</h3>
               </Link>
-              {tag.featured && <span className="text-yellow-500 text-sm">✨</span>}
+              {tagItem.featured && <span className="text-yellow-500 text-sm">✨</span>}
             </div>
-            <p className="text-sm text-gray-600 mb-1">{tag.description}</p>
+            <p className="text-sm text-gray-600 mb-1">{tagItem.description}</p>
             <p className="text-xs text-gray-400">
-              📅 {new Date(tag.created_at).toLocaleDateString()} | 👁️ {tag.views} views
+              📅 {new Date(tagItem.created_at).toLocaleDateString()} | 👁️ {tagItem.views} views
             </p>
           </li>
         ))}
