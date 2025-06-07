@@ -1,13 +1,9 @@
-import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 import UserClientPage from './_client'
 
-export default async function UserPageWrapper({
-  params,
-}: {
-  params: { id: string }
-}) {
-  // ✅ FIXED: Await the cookies() call
+export default async function UserPageWrapper({ params }: { params: { id: string } }) {
+  // ✅ Add await — cookies() is now async in newer Next.js versions
   const cookieStore = await cookies()
 
   const supabase = createServerClient(
@@ -15,9 +11,11 @@ export default async function UserPageWrapper({
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name: string) => cookieStore.get(name)?.value ?? null,
-        set: () => {},
-        remove: () => {},
+        get(name: string) {
+          return cookieStore.get(name)?.value ?? null
+        },
+        set() {},
+        remove() {},
       },
     }
   )
@@ -39,11 +37,7 @@ export default async function UserPageWrapper({
     .maybeSingle()
 
   if (tagError || userError) {
-    return (
-      <div className="p-10 text-center text-red-600">
-        Error: {tagError?.message || userError?.message}
-      </div>
-    )
+    return <div className="p-10 text-center text-red-600">Error: {tagError?.message || userError?.message}</div>
   }
 
   return (

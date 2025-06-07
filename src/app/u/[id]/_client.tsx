@@ -1,7 +1,7 @@
 'use client'
 
-import { createBrowserClient } from '@supabase/ssr'
 import { useEffect, useRef, useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
 
 const supabase = createBrowserClient(
@@ -46,23 +46,22 @@ export default function UserClientPage({
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Hydrate Supabase auth with session
   useEffect(() => {
-    if (session?.access_token && session?.refresh_token) {
+    if (session?.access_token && session?.user?.id) {
       supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
-      }).then(({ data, error }) => {
-        if (data?.user?.id) {
-          setSessionUserId(data.user.id)
-        }
       })
+      setSessionUserId(session.user.id)
     }
   }, [session])
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !sessionUserId) return
+    if (!file || !sessionUserId || sessionUserId !== userId) {
+      console.error('❌ Not allowed or no file/session.')
+      return
+    }
 
     const ext = file.name.split('.').pop() || 'jpg'
     const filePath = `${sessionUserId}.${ext}`
@@ -75,7 +74,10 @@ export default function UserClientPage({
         cacheControl: '3600',
       })
 
-    if (uploadError) return console.error('Upload failed', uploadError)
+    if (uploadError) {
+      console.error('❌ Upload error:', uploadError)
+      return
+    }
 
     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
 
@@ -84,12 +86,17 @@ export default function UserClientPage({
       .update({ avatar_url: urlData.publicUrl })
       .eq('id', sessionUserId)
 
-    if (updateError) return console.error('Failed to update avatar URL', updateError)
+    if (updateError) {
+      console.error('❌ Avatar URL save failed:', updateError)
+      return
+    }
 
     setUser((prev) => (prev ? { ...prev, avatar_url: urlData.publicUrl } : prev))
   }
 
   const handleSave = async () => {
+    if (!sessionUserId || sessionUserId !== userId) return
+
     const updates: any = {}
     if (username.trim()) updates.username = username
     if (bio.trim()) updates.bio = bio
@@ -97,10 +104,10 @@ export default function UserClientPage({
     const { error } = await supabase
       .from('users')
       .update(updates)
-      .eq('id', userId)
+      .eq('id', sessionUserId)
 
     if (error) {
-      console.error('Error saving profile:', error)
+      console.error('❌ Save error:', error)
       return
     }
 
@@ -123,19 +130,23 @@ export default function UserClientPage({
           </div>
         )}
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleAvatarChange}
-          className="hidden"
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="text-blue-600 text-sm hover:underline mt-1"
-          disabled={!sessionUserId}
-        >
-          📸 Change Avatar
-        </button>
+        {sessionUserId === userId && (
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleAvatarChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-blue-600 text-sm hover:underline mt-1"
+            >
+              📸 Change Avatar
+            </button>
+          </>
+        )}
+
         <pre className="text-xs text-gray-400 mt-2">
           {JSON.stringify({ sessionUserId, userId }, null, 2)}
         </pre>
@@ -165,12 +176,14 @@ export default function UserClientPage({
           <>
             <h1 className="text-2xl font-bold mt-4">{user?.username || user?.email}</h1>
             {user?.bio && <p className="text-gray-600 mt-1">{user.bio}</p>}
-            <button
-              onClick={() => setEditing(true)}
-              className="text-blue-600 text-sm hover:underline mt-1"
-            >
-              ✏️ Edit Profile
-            </button>
+            {sessionUserId === userId && (
+              <button
+                onClick={() => setEditing(true)}
+                className="text-blue-600 text-sm hover:underline mt-1"
+              >
+                ✏️ Edit Profile
+              </button>
+            )}
           </>
         )}
       </div>
