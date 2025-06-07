@@ -1,4 +1,3 @@
-// src/app/u/[id]/_client.tsx
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
@@ -39,36 +38,32 @@ export default function UserClientPage({
   initialTags: Tag[]
 }) {
   const userId = decodeURIComponent(params.id)
-
   const [tags, setTags] = useState<Tag[]>(initialTags)
   const [user, setUser] = useState<UserProfile | null>(initialUser)
-  const [error, setError] = useState<string | null>(null)
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [username, setUsername] = useState(initialUser?.username || '')
   const [bio, setBio] = useState(initialUser?.bio || '')
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Hydrate Supabase client with session from SSR/SSG
+  // Hydrate Supabase auth with session
   useEffect(() => {
     if (session?.access_token && session?.refresh_token) {
       supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
+      }).then(({ data, error }) => {
+        if (data?.user?.id) {
+          setSessionUserId(data.user.id)
+        }
       })
-      setSessionUserId(session.user?.id ?? null)
-    } else {
-      setSessionUserId(null)
     }
   }, [session])
 
-  // --- AVATAR UPLOAD HANDLER ---
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !sessionUserId) {
-      console.error('❌ No file or valid user session.')
-      return
-    }
+    if (!file || !sessionUserId) return
+
     const ext = file.name.split('.').pop() || 'jpg'
     const filePath = `${sessionUserId}.${ext}`
 
@@ -80,10 +75,7 @@ export default function UserClientPage({
         cacheControl: '3600',
       })
 
-    if (uploadError) {
-      console.error('❌ Upload failed:', uploadError)
-      return
-    }
+    if (uploadError) return console.error('Upload failed', uploadError)
 
     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
 
@@ -92,27 +84,23 @@ export default function UserClientPage({
       .update({ avatar_url: urlData.publicUrl })
       .eq('id', sessionUserId)
 
-    if (updateError) {
-      console.error('❌ Failed to update user with avatar URL:', updateError)
-      return
-    }
+    if (updateError) return console.error('Failed to update avatar URL', updateError)
 
     setUser((prev) => (prev ? { ...prev, avatar_url: urlData.publicUrl } : prev))
   }
 
-  // --- PROFILE SAVE HANDLER ---
   const handleSave = async () => {
     const updates: any = {}
     if (username.trim()) updates.username = username
     if (bio.trim()) updates.bio = bio
 
-    const { error: saveError } = await supabase
+    const { error } = await supabase
       .from('users')
       .update(updates)
       .eq('id', userId)
 
-    if (saveError) {
-      console.error('Error saving profile:', saveError)
+    if (error) {
+      console.error('Error saving profile:', error)
       return
     }
 
@@ -120,12 +108,6 @@ export default function UserClientPage({
     setEditing(false)
   }
 
-  // --- RENDER ANY ERROR STATE ---
-  if (error) {
-    return <div className="p-10 text-center text-red-600">Error: {error}</div>
-  }
-
-  // --- MAIN RENDER ---
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <div className="text-center mb-8">
@@ -194,20 +176,18 @@ export default function UserClientPage({
       </div>
 
       <h2 className="text-xl font-semibold mb-4">📦 {tags.length} Tags Created</h2>
-
       <ul className="space-y-4">
-        {tags.map((tagItem) => (
-          <li key={tagItem.id} className="border rounded p-4 shadow bg-white">
+        {tags.map((tag) => (
+          <li key={tag.id} className="border rounded p-4 shadow bg-white">
             <div className="flex justify-between items-center mb-1">
-              <Link href={`/tag/${tagItem.id}`}>
-                <h3 className="text-lg font-semibold hover:underline">{tagItem.title}</h3>
+              <Link href={`/tag/${tag.id}`}>
+                <h3 className="text-lg font-semibold hover:underline">{tag.title}</h3>
               </Link>
-              {tagItem.featured && <span className="text-yellow-500 text-sm">✨</span>}
+              {tag.featured && <span className="text-yellow-500 text-sm">✨</span>}
             </div>
-            <p className="text-sm text-gray-600 mb-1">{tagItem.description}</p>
+            <p className="text-sm text-gray-600 mb-1">{tag.description}</p>
             <p className="text-xs text-gray-400">
-              📅 {new Date(tagItem.created_at).toLocaleDateString()} | 👁️{' '}
-              {tagItem.views} views
+              📅 {new Date(tag.created_at).toLocaleDateString()} | 👁️ {tag.views} views
             </p>
           </li>
         ))}
