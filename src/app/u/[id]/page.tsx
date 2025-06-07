@@ -49,10 +49,15 @@ export default function UserPage() {
   const handleSave = async () => {
     setSaving(true)
 
-    await supabase
+    const { error } = await supabase
       .from('users')
       .update({ username, bio })
       .eq('id', userId)
+
+    if (error) {
+      console.error('❌ Failed to save profile:', error)
+      alert('Failed to save profile.')
+    }
 
     setSaving(false)
   }
@@ -66,26 +71,33 @@ export default function UserPage() {
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(filePath, file, { upsert: true })
+      .upload(filePath, file, {
+        upsert: true,
+        contentType: file.type,
+        cacheControl: '3600',
+      })
 
     if (uploadError) {
+      console.error('❌ Avatar upload failed:', uploadError)
       alert('Failed to upload avatar.')
       return
     }
 
-    const { data } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath)
-
+    const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
     const publicUrl = data?.publicUrl
 
     if (publicUrl) {
       setAvatarUrl(publicUrl)
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('users')
         .update({ avatar_url: publicUrl })
         .eq('id', userId)
+
+      if (updateError) {
+        console.error('❌ Avatar URL update failed:', updateError)
+        alert('Failed to save avatar URL.')
+      }
     }
   }
 
