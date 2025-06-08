@@ -14,13 +14,14 @@ export default function UserPage() {
   )
 
   const params = useParams()
-  const userId = params?.id as string
+  const userIdFromUrl = params?.id as string
 
   const [session, setSession] = useState<any>(null)
   const [username, setUsername] = useState('')
   const [bio, setBio] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const getSessionAndUser = async () => {
@@ -33,7 +34,7 @@ export default function UserPage() {
       const { data: userData } = await supabase
         .from('users')
         .select('username, bio, avatar_url')
-        .eq('id', userId)
+        .eq('id', userIdFromUrl)
         .maybeSingle()
 
       if (userData) {
@@ -41,18 +42,21 @@ export default function UserPage() {
         setBio(userData.bio || '')
         setAvatarUrl(userData.avatar_url || '')
       }
+
+      setLoading(false)
     }
 
     getSessionAndUser()
-  }, [supabase, userId])
+  }, [supabase, userIdFromUrl])
 
   const handleSave = async () => {
+    if (!session) return
     setSaving(true)
 
     const { error } = await supabase
       .from('users')
       .update({ username, bio })
-      .eq('id', userId)
+      .eq('id', session.user.id)
 
     if (error) {
       console.error('❌ Failed to save profile:', error)
@@ -64,10 +68,10 @@ export default function UserPage() {
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !userId) return
+    if (!file || !session) return
 
     const fileExt = file.name.split('.').pop()
-    const filePath = `${userId}.${fileExt}`
+    const filePath = `${session.user.id}.${fileExt}`
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
@@ -92,13 +96,21 @@ export default function UserPage() {
       const { error: updateError } = await supabase
         .from('users')
         .update({ avatar_url: publicUrl })
-        .eq('id', userId)
+        .eq('id', session.user.id)
 
       if (updateError) {
         console.error('❌ Avatar URL update failed:', updateError)
         alert('Failed to save avatar URL.')
       }
     }
+  }
+
+  if (loading) {
+    return <div className="text-center p-6">Loading profile...</div>
+  }
+
+  if (session?.user.id !== userIdFromUrl) {
+    return <div className="text-center text-red-500 p-6">❌ You cannot edit this profile.</div>
   }
 
   return (
