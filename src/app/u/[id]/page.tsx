@@ -29,6 +29,9 @@ export default function UserPage() {
         data: { session },
       } = await supabase.auth.getSession()
 
+      console.log('👤 Session user ID:', session?.user?.id)
+      console.log('🔗 URL user ID:', userIdFromUrl)
+
       setSession(session)
 
       const { data: userData } = await supabase
@@ -110,6 +113,7 @@ export default function UserPage() {
   }
 
   if (session?.user.id !== userIdFromUrl) {
+    console.log('❌ BLOCKED: session ID does not match profile ID')
     return <div className="text-center text-red-500 p-6">❌ You cannot edit this profile.</div>
   }
 
