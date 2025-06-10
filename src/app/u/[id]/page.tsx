@@ -36,7 +36,7 @@ export default function UserPage() {
       if (userData) {
         setUsername(userData.username || '')
         setBio(userData.bio || '')
-        setAvatarUrl(userData.avatar_url || '')
+        setAvatarUrl(userData.avatar_url ? `${userData.avatar_url}?t=${Date.now()}` : '')
       }
 
       setLoading(false)
@@ -86,10 +86,10 @@ export default function UserPage() {
     const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
     const publicUrl = data?.publicUrl
 
-    console.log('🖼 Public avatar URL:', publicUrl) // ✅ Added log here
+    console.log('🖼 Public avatar URL:', publicUrl)
 
     if (publicUrl) {
-      setAvatarUrl(publicUrl)
+      setAvatarUrl(`${publicUrl}?t=${Date.now()}`) // 👈 cache-busting URL
 
       const { error: updateError } = await supabase
         .from('users')
@@ -125,7 +125,8 @@ export default function UserPage() {
               alt="avatar"
               width={100}
               height={100}
-              className="rounded-full"
+              className="rounded-full object-cover"
+              priority
             />
           )}
         </div>
