@@ -1,18 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
+import { supabase } from '../../../lib/supabaseClient' // 👈 Correct shared client import
 
 export default function UserPage() {
-  const [supabase] = useState(() =>
-    createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-  )
-
   const params = useParams()
   const userIdFromUrl = params?.id as string
 
@@ -50,7 +43,7 @@ export default function UserPage() {
     }
 
     getSessionAndUser()
-  }, [supabase, userIdFromUrl])
+  }, [userIdFromUrl])
 
   const handleSave = async () => {
     if (!session) return
