@@ -1,6 +1,9 @@
-module.exports = {
-  // Ensure no custom rewrites or redirects are interfering
-  async rewrites() {
-    return [];
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  images: {
+    domains: ['tuysxhhlwsuehadbvrdi.supabase.co'],
   },
-};
+}
+
+module.exports = nextConfig
+
