@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
-import { supabase } from '../../../lib/supabaseClient' // 👈 Correct shared client import
+import { supabase } from '../../../lib/supabaseClient'
 
 export default function UserPage() {
   const params = useParams()
@@ -85,6 +85,8 @@ export default function UserPage() {
 
     const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
     const publicUrl = data?.publicUrl
+
+    console.log('🖼 Public avatar URL:', publicUrl) // ✅ Added log here
 
     if (publicUrl) {
       setAvatarUrl(publicUrl)
