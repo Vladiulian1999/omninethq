@@ -1,9 +1,9 @@
 import Stripe from 'stripe'
 import { NextResponse } from 'next/server'
 
-export const runtime = 'nodejs'  // 👈 This line fixes the runtime issue
+export const runtime = 'nodejs'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripe = new (Stripe as any)(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16',
 })
 

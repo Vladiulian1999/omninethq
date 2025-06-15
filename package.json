@@ -19,7 +19,7 @@
     "react-icons": "^5.5.0",
     "react-qr-code": "^2.0.15",
     "recharts": "^2.15.3",
-    "stripe": "^12.16.0"
+    "stripe": "^18.2.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
