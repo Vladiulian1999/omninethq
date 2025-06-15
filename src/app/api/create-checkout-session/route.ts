@@ -2,9 +2,10 @@ import Stripe from 'stripe'
 import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-const stripe = new (Stripe as any)(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2022-11-15',
 })
 
 export async function POST(req: Request) {
