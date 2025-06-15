@@ -1,6 +1,7 @@
-// app/api/create-checkout-session/route.ts
 import Stripe from 'stripe'
 import { NextResponse } from 'next/server'
+
+export const runtime = 'nodejs'  // 👈 This line fixes the runtime issue
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2023-10-16',
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
             name: `Support Tag ${tagId}`,
             description: 'Donate to support this service tag on OmniNet',
           },
-          unit_amount: 500, // £5.00
+          unit_amount: 500,
         },
         quantity: 1,
       },
