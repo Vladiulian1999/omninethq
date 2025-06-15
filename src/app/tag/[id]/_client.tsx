@@ -79,7 +79,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
 
     const logScan = async () => {
-      await supabase.from('scans').insert([{ tag_id: tagId }])
+      await supabase.from('scans').insert([{ tag_id: tagId, created_at: new Date().toISOString() }])
       const { count } = await supabase
         .from('scans')
         .select('*', { count: 'exact', head: true })
@@ -106,6 +106,21 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const url = `https://omninethq.co.uk/tag/${tagId}`
     navigator.clipboard.writeText(url)
     alert('🔗 Link copied to clipboard!')
+  }
+
+  const handleDonate = async () => {
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tagId }),
+    })
+
+    const data = await res.json()
+    if (data?.url) {
+      window.location.href = data.url
+    } else {
+      alert('❌ Failed to create Stripe session')
+    }
   }
 
   const handleSubmitFeedback = async (e: React.FormEvent) => {
@@ -217,6 +232,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
           >
             🔗 Copy Link
+          </button>
+          <button
+            onClick={handleDonate}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
+          >
+            💸 Support this Tag
           </button>
         </div>
       </div>
