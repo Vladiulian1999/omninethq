@@ -1,4 +1,6 @@
 'use client'
+import { getTagScanStats } from '@/lib/get-scans'
+import loadDynamic from 'next/dynamic'
 
 import { createClient } from '@supabase/supabase-js'
 import { useEffect, useRef, useState } from 'react'
@@ -23,8 +25,11 @@ type FeedbackEntry = {
   hidden?: boolean
 }
 
-export default function TagPage({ params }: { params: { id: string } }) {
+export default async function TagPage({ params }: { params: { id: string } }) {
   const decodedId = decodeURIComponent(params.id)
+  const scanChartData = await getTagScanStats(decodedId)
+ const ScanAnalytics = loadDynamic(() => import('@/components/ScanAnalytics'), { ssr: false })
+
 
   const [data, setData] = useState<{
     title: string
@@ -38,6 +43,7 @@ export default function TagPage({ params }: { params: { id: string } }) {
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [rating, setRating] = useState<number | ''>('')
+
   const [error, setError] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [scanCount, setScanCount] = useState<number>(0)
@@ -107,14 +113,12 @@ export default function TagPage({ params }: { params: { id: string } }) {
 
   const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { error } = await supabase.from('feedback').insert([
-      {
-        tag_id: decodedId,
-        name: name || 'Anonymous',
-        message,
-        rating,
-      },
-    ])
+    const { error } = await supabase.from('feedback').insert([{
+      tag_id: decodedId,
+      name: name || 'Anonymous',
+      message,
+      rating,
+    }])
     if (!error) {
       setName('')
       setMessage('')
@@ -145,31 +149,21 @@ export default function TagPage({ params }: { params: { id: string } }) {
   const getCategoryBadge = (category: string) => {
     const base = 'inline-block px-3 py-1 rounded-full text-xs font-medium'
     switch (category) {
-      case 'rent':
-        return `${base} bg-blue-100 text-blue-800`
-      case 'sell':
-        return `${base} bg-green-100 text-green-800`
-      case 'teach':
-        return `${base} bg-yellow-100 text-yellow-800`
-      case 'help':
-        return `${base} bg-purple-100 text-purple-800`
-      default:
-        return `${base} bg-gray-100 text-gray-800`
+      case 'rent': return `${base} bg-blue-100 text-blue-800`
+      case 'sell': return `${base} bg-green-100 text-green-800`
+      case 'teach': return `${base} bg-yellow-100 text-yellow-800`
+      case 'help': return `${base} bg-purple-100 text-purple-800`
+      default: return `${base} bg-gray-100 text-gray-800`
     }
   }
 
   const getCategoryEmoji = (category: string) => {
     switch (category) {
-      case 'rent':
-        return '🪜'
-      case 'sell':
-        return '🛒'
-      case 'teach':
-        return '🎓'
-      case 'help':
-        return '🤝'
-      default:
-        return ''
+      case 'rent': return '🪜'
+      case 'sell': return '🛒'
+      case 'teach': return '🎓'
+      case 'help': return '🤝'
+      default: return ''
     }
   }
 
@@ -229,6 +223,8 @@ export default function TagPage({ params }: { params: { id: string } }) {
           </button>
         </div>
       </div>
+
+      <ScanAnalytics data={scanChartData} />
 
       <hr className="my-8 border-gray-300" />
 
