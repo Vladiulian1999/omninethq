@@ -3,13 +3,16 @@ import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2022-11-15', // REQUIRED by your current stripe version
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2022-11-15',
 })
 
 export async function POST(req: Request) {
   try {
-    const { tagId } = await req.json()
+    const body = await req.json()
+    console.log('[DEBUG] Incoming JSON:', body)
+
+    const { tagId } = body
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -34,7 +37,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url })
   } catch (error) {
-    console.error('[STRIPE SESSION ERROR]', error)
-    return NextResponse.json({ error: 'Failed to create Stripe session' }, { status: 500 })
+    console.error('[STRIPE_SESSION_ERROR]', error)
+    return NextResponse.json(
+      { error: 'Failed to create Stripe session' },
+      { status: 500 }
+    )
   }
 }
