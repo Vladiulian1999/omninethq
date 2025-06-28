@@ -1,11 +1,11 @@
+// src/app/api/create-checkout-session/route.ts
 import Stripe from 'stripe'
 import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2022-11-15', // ✅ safest version matching types
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: '2022-11-15', // Use the version expected by your types
 })
 
 export async function POST(req: Request) {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
               name: `Support Tag ${tagId}`,
               description: 'Donate to support this service tag on OmniNet',
             },
-            unit_amount: 500, // £5.00
+            unit_amount: 500,
           },
           quantity: 1,
         },
@@ -43,11 +43,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: session.url })
   } catch (error) {
     console.error('[STRIPE_SESSION_ERROR]', error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to create session' }, { status: 500 })
   }
 }
