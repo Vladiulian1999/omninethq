@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16' as any, // force override to fix TS type mismatch
+  apiVersion: '2022-11-15', // ✅ Fixed version
 })
 
 export async function POST(req: Request) {
@@ -27,16 +27,18 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      metadata: { tag_id: tagId },
+      metadata: {
+        tag_id: tagId,
+      },
       success_url: `${process.env.NEXT_PUBLIC_STRIPE_SUCCESS_URL}?tag=${tagId}`,
       cancel_url: `${process.env.NEXT_PUBLIC_STRIPE_CANCEL_URL}?tag=${tagId}`,
     })
 
     return NextResponse.json({ url: session.url })
-  } catch (err: any) {
-    console.error('❌ Stripe Error:', err)
-    return new NextResponse(
-      JSON.stringify({ error: 'Something went wrong creating checkout session' }),
+  } catch (error) {
+    console.error('[STRIPE SESSION ERROR]', error)
+    return NextResponse.json(
+      { error: 'Stripe session failed' },
       { status: 500 }
     )
   }
