@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2022-11-15', // ✅ Fixed version
+  apiVersion: '2022-11-15', // ✅ use only the valid version your Stripe types allow
 })
 
 export async function POST(req: Request) {
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
               name: `Support Tag ${tagId}`,
               description: 'Donate to support this service tag on OmniNet',
             },
-            unit_amount: 500,
+            unit_amount: 500, // £5.00 in pence
           },
           quantity: 1,
         },
@@ -35,10 +35,10 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json({ url: session.url })
-  } catch (error) {
-    console.error('[STRIPE SESSION ERROR]', error)
+  } catch (error: any) {
+    console.error('[STRIPE SESSION ERROR]', error?.message || error)
     return NextResponse.json(
-      { error: 'Stripe session failed' },
+      { error: error?.message || 'Stripe session failed' },
       { status: 500 }
     )
   }
