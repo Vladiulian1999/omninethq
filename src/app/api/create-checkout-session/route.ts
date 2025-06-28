@@ -1,19 +1,15 @@
-import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2022-11-15',
+  apiVersion: '2022-11-15', // REQUIRED by your current stripe version
 })
 
 export async function POST(req: Request) {
   try {
     const { tagId } = await req.json()
-
-    if (!tagId) {
-      return NextResponse.json({ error: 'Missing tagId' }, { status: 400 })
-    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -26,7 +22,7 @@ export async function POST(req: Request) {
               name: `Support Tag ${tagId}`,
               description: 'Donate to support this service tag on OmniNet',
             },
-            unit_amount: 500, // £5.00
+            unit_amount: 500,
           },
           quantity: 1,
         },
@@ -37,11 +33,8 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json({ url: session.url })
-  } catch (error: any) {
-    console.error('[STRIPE SESSION ERROR]', error?.message || error)
-    return NextResponse.json(
-      { error: 'Failed to create Stripe session' },
-      { status: 500 }
-    )
+  } catch (error) {
+    console.error('[STRIPE SESSION ERROR]', error)
+    return NextResponse.json({ error: 'Failed to create Stripe session' }, { status: 500 })
   }
 }
