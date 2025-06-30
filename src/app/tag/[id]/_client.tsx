@@ -1,3 +1,4 @@
+// app/tag/[id]/_client.tsx
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
@@ -6,6 +7,7 @@ import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import Link from 'next/link'
 import ScanAnalytics from '@/components/ScanAnalytics'
+import { AvailabilityForm } from './AvailabilityForm'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +36,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     category: string
     views?: number
     featured?: boolean
+    user_id?: string
   } | null>(null)
 
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([])
@@ -51,7 +54,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const fetchTag = async () => {
       const { data, error } = await supabase
         .from('messages')
-        .select('title, description, category, views, featured')
+        .select('title, description, category, views, featured, user_id')
         .eq('id', tagId)
         .single()
 
@@ -192,6 +195,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     )
   }
 
+  const isOwner = userId && data.user_id && userId === data.user_id
+
   return (
     <div className="p-10 text-center">
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
@@ -243,6 +248,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </div>
 
       <ScanAnalytics data={scanChartData} />
+
+      {isOwner && (
+        <div className="my-8">
+          <h2 className="text-xl font-semibold mb-4">📅 Set Your Availability</h2>
+          <AvailabilityForm tagId={tagId} userId={userId!} />
+        </div>
+      )}
 
       <hr className="my-8 border-gray-300" />
 
