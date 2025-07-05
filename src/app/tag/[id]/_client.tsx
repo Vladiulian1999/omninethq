@@ -52,11 +52,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   useEffect(() => {
     const fetchTag = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('title, description, category, views, featured, user_id')
-        .eq('id', tagId)
-        .single()
+    const { data, error } = await supabase
+  .from('messages')
+  .select('title, description, category, views, featured, user_id')
+  .eq('id', tagId)
+  .single()
+
 
       if (error) {
         setError(error.message)
