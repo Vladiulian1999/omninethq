@@ -247,7 +247,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         </div>
       </div>
 
-      <ScanAnalytics data={scanChartData} />
+      <ScanAnalytics data={scanChartData} /> <div className="bg-yellow-100 p-4 text-left mt-6 rounded shadow">
+  <p><strong>Debug:</strong></p>
+  <p>Current userId: <code>{userId || '❌ not logged in'}</code></p>
+  <p>Tag owner (data.user_id): <code>{data?.user_id || '❌ not set'}</code></p>
+  <p>isOwner: <code>{String(userId && data?.user_id && userId === data.user_id)}</code></p>
+</div>
+
 
       {isOwner && (
         <div className="my-8">
