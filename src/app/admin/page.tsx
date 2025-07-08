@@ -1,9 +1,10 @@
 'use client'
-export const dynamic = 'force-dynamic';
+export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase } from '@/lib/supabase'
+import { BackButton } from '@/components/BackButton'
 
 type Tag = {
   id: string
@@ -74,6 +75,7 @@ export default function AdminPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      <BackButton />
       <h1 className="text-3xl font-bold mb-6 text-center">🔧 Admin: Manage Tags</h1>
 
       {visibleTags.length === 0 ? (
