@@ -1,4 +1,3 @@
-// app/tag/[id]/_client.tsx
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
@@ -30,34 +29,25 @@ type Props = {
 }
 
 export default function TagClient({ tagId, scanChartData }: Props) {
-  const [data, setData] = useState<{
-    title: string
-    description: string
-    category: string
-    views?: number
-    featured?: boolean
-    user_id?: string
-  } | null>(null)
-
+  const [data, setData] = useState<any>(null)
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([])
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [rating, setRating] = useState<number | ''>('')
-
   const [error, setError] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [scanCount, setScanCount] = useState<number>(0)
+  const [availability, setAvailability] = useState<any[]>([])
 
   const qrRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const fetchTag = async () => {
-    const { data, error } = await supabase
-  .from('messages')
-  .select('title, description, category, views, featured, user_id')
-  .eq('id', tagId)
-  .single()
-
+      const { data, error } = await supabase
+        .from('messages')
+        .select('title, description, category, views, featured, user_id')
+        .eq('id', tagId)
+        .single()
 
       if (error) {
         setError(error.message)
@@ -80,6 +70,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser()
       setUserId(data?.user?.id || null)
+      return data?.user?.id || null
     }
 
     const logScan = async () => {
@@ -93,9 +84,23 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     fetchTag()
     fetchFeedback()
-    getUser()
+    getUser().then((uid) => {
+      if (uid) {
+        const fetchAvailability = async () => {
+          const { data: availability } = await supabase
+            .from('availability')
+            .select('*')
+            .eq('tag_id', tagId)
+            .eq('user_id', uid)
+          setAvailability(availability || [])
+        }
+        fetchAvailability()
+      }
+    })
     logScan()
   }, [tagId])
+
+  const isOwner = userId && data?.user_id && userId === data.user_id
 
   const handleDownload = async () => {
     if (!qrRef.current) return
@@ -196,8 +201,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     )
   }
 
-  const isOwner = userId && data.user_id && userId === data.user_id
-
   return (
     <div className="p-10 text-center">
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
@@ -227,39 +230,17 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
 
         <div className="flex gap-3 mt-2">
-          <button
-            onClick={handleDownload}
-            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
-          >
-            📥 Download QR
-          </button>
-          <button
-            onClick={handleCopyLink}
-            className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
-          >
-            🔗 Copy Link
-          </button>
-          <button
-            onClick={handleDonate}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
-          >
-            💸 Support this Tag
-          </button>
+          <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">📥 Download QR</button>
+          <button onClick={handleCopyLink} className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm">🔗 Copy Link</button>
+          <button onClick={handleDonate} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm">💸 Support this Tag</button>
         </div>
       </div>
 
-      <ScanAnalytics data={scanChartData} /> <div className="bg-yellow-100 p-4 text-left mt-6 rounded shadow">
-  <p><strong>Debug:</strong></p>
-  <p>Current userId: <code>{userId || '❌ not logged in'}</code></p>
-  <p>Tag owner (data.user_id): <code>{data?.user_id || '❌ not set'}</code></p>
-  <p>isOwner: <code>{String(userId && data?.user_id && userId === data.user_id)}</code></p>
-</div>
-
+      <ScanAnalytics data={scanChartData} />
 
       {isOwner && (
         <div className="my-8">
-          <h2 className="text-xl font-semibold mb-4">📅 Set Your Availability</h2>
-          <AvailabilityForm tagId={tagId} userId={userId!} />
+          <AvailabilityForm tagId={tagId} userId={userId!} initialAvailability={availability} />
         </div>
       )}
 
@@ -293,36 +274,15 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </ul>
 
       <form onSubmit={handleSubmitFeedback} className="space-y-3 text-left max-w-md mx-auto">
-        <input
-          className="w-full border p-2 rounded"
-          placeholder="Your name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <textarea
-          className="w-full border p-2 rounded"
-          placeholder="Your comment..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          required
-        />
-        <select
-          className="w-full border p-2 rounded"
-          value={rating}
-          onChange={(e) => setRating(Number(e.target.value))}
-          required
-        >
+        <input className="w-full border p-2 rounded" placeholder="Your name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <textarea className="w-full border p-2 rounded" placeholder="Your comment..." value={message} onChange={(e) => setMessage(e.target.value)} required />
+        <select className="w-full border p-2 rounded" value={rating} onChange={(e) => setRating(Number(e.target.value))} required>
           <option value="">Rate this tag</option>
           {[1, 2, 3, 4, 5].map((r) => (
             <option key={r} value={r}>{r} ⭐</option>
           ))}
         </select>
-        <button
-          type="submit"
-          className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800"
-        >
-          Submit Feedback
-        </button>
+        <button type="submit" className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800">Submit Feedback</button>
       </form>
     </div>
   )
