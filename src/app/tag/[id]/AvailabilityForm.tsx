@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -10,29 +10,53 @@ const supabase = createClient(
 
 const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-export function AvailabilityForm({ tagId, userId }: { tagId: string; userId: string }) {
+export function AvailabilityForm({
+  tagId,
+  userId,
+  initialAvailability = []
+}: {
+  tagId: string
+  userId: string
+  initialAvailability?: any[]
+}) {
+
   const [day, setDay] = useState('Monday')
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('17:00')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [slots, setSlots] = useState<any[]>([])
+
+  useEffect(() => {
+    if (initialAvailability?.length > 0) {
+      setSlots(initialAvailability)
+    }
+  }, [initialAvailability])
 
   const submitAvailability = async () => {
     setLoading(true)
     setMessage('')
 
-    const { error } = await supabase.from('availability').insert({
+    const { error } = await supabase.from('availability').upsert({
       tag_id: tagId,
       user_id: userId,
-      day_of_week: day,
-      start_time: startTime,
-      end_time: endTime,
+      day: day,
+      times: [`${startTime} - ${endTime}`]
     })
 
     if (error) {
       setMessage(`❌ ${error.message}`)
     } else {
       setMessage('✅ Availability saved!')
+
+      // update UI state
+      const updated = [...slots.filter((s) => s.day !== day), {
+        tag_id: tagId,
+        user_id: userId,
+        day,
+        times: [`${startTime} - ${endTime}`],
+      }]
+      setSlots(updated)
     }
 
     setLoading(false)
@@ -48,9 +72,7 @@ export function AvailabilityForm({ tagId, userId }: { tagId: string; userId: str
           className="border p-2 rounded"
         >
           {daysOfWeek.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
+            <option key={d} value={d}>{d}</option>
           ))}
         </select>
         <input
@@ -74,6 +96,17 @@ export function AvailabilityForm({ tagId, userId }: { tagId: string; userId: str
         </button>
         {message && <p className="text-sm mt-1">{message}</p>}
       </div>
+
+      {slots.length > 0 && (
+        <div className="mt-6">
+          <h4 className="font-medium mb-2">📅 Your Set Availability</h4>
+          <ul className="text-left text-sm space-y-1">
+            {slots.map((slot, i) => (
+              <li key={i}>✅ <strong>{slot.day}</strong>: {slot.times.join(', ')}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
