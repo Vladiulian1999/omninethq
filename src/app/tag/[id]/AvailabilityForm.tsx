@@ -32,6 +32,16 @@ export function AvailabilityForm({
     }
   }, [initialAvailability])
 
+  const refreshSlots = async () => {
+    const { data } = await supabase
+      .from('availability')
+      .select('*')
+      .eq('tag_id', tagId)
+      .eq('user_id', userId)
+
+    setSlots(data || [])
+  }
+
   const submitAvailability = async () => {
     setLoading(true)
     setMessage('')
@@ -48,21 +58,26 @@ export function AvailabilityForm({
       setMessage(`❌ ${error.message}`)
     } else {
       setMessage('✅ Availability saved!')
-
-      const updated = [
-        ...slots.filter((s) => s.day_of_week !== day),
-        {
-          tag_id: tagId,
-          user_id: userId,
-          day_of_week: day,
-          start_time: startTime,
-          end_time: endTime,
-        }
-      ]
-      setSlots(updated)
+      await refreshSlots()
     }
 
     setLoading(false)
+  }
+
+  const deleteSlot = async (dayOfWeek: string) => {
+    const { error } = await supabase
+      .from('availability')
+      .delete()
+      .eq('tag_id', tagId)
+      .eq('user_id', userId)
+      .eq('day_of_week', dayOfWeek)
+
+    if (error) {
+      setMessage(`❌ ${error.message}`)
+    } else {
+      setMessage('🗑️ Availability removed')
+      await refreshSlots()
+    }
   }
 
   return (
@@ -105,10 +120,18 @@ export function AvailabilityForm({
       {slots.length > 0 && (
         <div className="mt-6">
           <h4 className="font-medium mb-2">📅 Your Set Availability</h4>
-          <ul className="text-left text-sm space-y-1">
+          <ul className="text-left text-sm space-y-2">
             {slots.map((slot, i) => (
-              <li key={i}>
-                ✅ <strong>{slot.day_of_week}</strong>: {slot.start_time} - {slot.end_time}
+              <li key={i} className="flex items-center justify-between">
+                <span>
+                  ✅ <strong>{slot.day_of_week}</strong>: {slot.start_time} – {slot.end_time}
+                </span>
+                <button
+                  onClick={() => deleteSlot(slot.day_of_week)}
+                  className="text-red-500 hover:underline text-xs ml-2"
+                >
+                  ❌ Remove
+                </button>
               </li>
             ))}
           </ul>
