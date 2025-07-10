@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
-
+import { BackButton } from '@/components/BackButton'
 
 export default function UserPage() {
   const params = useParams()
@@ -90,7 +90,7 @@ export default function UserPage() {
     console.log('🖼 Public avatar URL:', publicUrl)
 
     if (publicUrl) {
-      setAvatarUrl(`${publicUrl}?t=${Date.now()}`) // 👈 cache-busting URL
+      setAvatarUrl(`${publicUrl}?t=${Date.now()}`)
 
       const { error: updateError } = await supabase
         .from('users')
@@ -115,6 +115,8 @@ export default function UserPage() {
 
   return (
     <div className="max-w-xl mx-auto p-6">
+      <BackButton />
+
       <h1 className="text-2xl font-bold mb-4">User Profile</h1>
 
       <div className="mb-4">

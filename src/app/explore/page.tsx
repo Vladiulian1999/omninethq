@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { BackButton } from '@/components/BackButton'
 
 type Tag = {
   id: string
@@ -115,6 +116,8 @@ export default function ExplorePage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      <BackButton />
+
       <h1 className="text-3xl font-bold mb-4 text-center">🔎 Explore OmniTags</h1>
 
       <input
