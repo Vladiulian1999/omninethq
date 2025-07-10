@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabaseClient'
+import { supabase } from '@/lib/supabase'
 
 export default function EditTagPage({ params }: { params: { id: string } }) {
   const decodedId = decodeURIComponent(params.id)
