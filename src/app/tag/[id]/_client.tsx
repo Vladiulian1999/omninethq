@@ -8,7 +8,7 @@ import Link from 'next/link'
 import ScanAnalytics from '@/components/ScanAnalytics'
 import { AvailabilityForm } from './AvailabilityForm'
 import { BackButton } from '@/components/BackButton'
-
+import toast, { Toaster } from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -110,12 +110,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     link.download = `${tagId}-qr.png`
     link.href = dataUrl
     link.click()
+    toast.success('📥 QR code downloaded!')
   }
 
   const handleCopyLink = () => {
     const url = `https://omninethq.co.uk/tag/${tagId}`
     navigator.clipboard.writeText(url)
-    alert('🔗 Link copied to clipboard!')
+    toast.success('🔗 Link copied to clipboard!')
   }
 
   const handleDonate = async () => {
@@ -129,7 +130,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     if (data?.url) {
       window.location.href = data.url
     } else {
-      alert('❌ Failed to create Stripe session')
+      toast.error('❌ Failed to create Stripe session')
     }
   }
 
@@ -152,8 +153,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         .eq('hidden', false)
         .order('created_at', { ascending: false })
       setFeedback(data || [])
+      toast.success('✅ Feedback submitted!')
     } else {
-      alert('❌ Failed to submit feedback: ' + error.message)
+      toast.error('❌ Failed to submit feedback')
     }
   }
 
@@ -165,6 +167,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       .eq('id', id)
     if (!error) {
       setFeedback((prev) => prev.filter((f) => f.id !== id))
+      toast.success('🗑 Feedback hidden')
+    } else {
+      toast.error('❌ Failed to hide feedback')
     }
   }
 
@@ -204,6 +209,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   return (
     <div className="p-10 text-center">
+      <Toaster position="top-center" />
       <BackButton />
 
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
