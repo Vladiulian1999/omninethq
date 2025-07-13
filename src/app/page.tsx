@@ -1,42 +1,30 @@
-// // src/app/page.tsx
-import Link from "next/link";
+'use client'
+
+import Link from 'next/link'
 
 export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-16 text-center">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-5xl font-extrabold mb-6">👁 OmniNet</h1>
-        <p className="text-xl text-gray-600 mb-8">
-          The human API. Scan to hire, rent, or request anything.
-        </p>
+    <main className="min-h-screen flex flex-col items-center justify-center text-center p-6">
+      <h1 className="text-4xl sm:text-5xl font-bold mb-4">OmniNet</h1>
+      <p className="text-gray-600 max-w-md mb-8">
+        Connect anything in the real world to the internet with a simple QR code.
+        Rent tools, offer help, sell skills, and more.
+      </p>
 
-        <div className="grid gap-4 mb-12">
-          <p className="text-gray-700">
-            OmniNet connects real-world people, tools, and skills via QR tags you can stick anywhere.
-          </p>
-          <p className="text-gray-700">
-            A bike fixer. A tool lender. A food maker. A guide. You don&apos;t need a website — just your tag.
-          </p>
-          <p className="text-gray-700">
-            One scan. Instant action.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            href="/explore"
-            className="bg-black text-white px-6 py-3 rounded-xl text-lg font-semibold hover:bg-gray-900 transition"
-          >
-            🔎 Explore Tags
-          </Link>
-          <Link
-            href="/new"
-            className="border border-black text-black px-6 py-3 rounded-xl text-lg font-semibold hover:bg-black hover:text-white transition"
-          >
-            ➕ Create a Tag
-          </Link>
-        </div>
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Link
+          href="/explore"
+          className="bg-black text-white px-6 py-3 rounded hover:bg-gray-800 transition"
+        >
+          🔎 Explore Tags
+        </Link>
+        <Link
+          href="/new"
+          className="bg-white text-black border border-gray-300 px-6 py-3 rounded hover:bg-gray-100 transition"
+        >
+          ➕ Create a Tag
+        </Link>
       </div>
-    </div>
-  );
+    </main>
+  )
 }
