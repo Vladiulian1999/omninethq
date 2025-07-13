@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
-import Link from 'next/link' // ✅ Needed for Back button
+import { BackButton } from '@/components/BackButton'
 
 function generateId(prefix = 'tag') {
   const random = Math.random().toString(36).substring(2, 7)
@@ -70,18 +70,12 @@ export default function NewTagPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-6">
-      {/* ✅ Back Button */}
-      <Link
-        href="/"
-        className="inline-block mb-6 text-sm text-blue-600 hover:underline"
-      >
-        ← Back to Home
-      </Link>
+    <div className="max-w-xl mx-auto px-4 py-6">
+      <BackButton />
 
       <h1 className="text-3xl font-bold mb-6 text-center">Create a New OmniTag</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded shadow">
         <div className="flex gap-2">
           <input
             className="w-full border p-2 rounded"
@@ -129,7 +123,7 @@ export default function NewTagPage() {
         <button
           type="submit"
           disabled={loading}
-          className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800"
+          className="bg-black text-white w-full px-4 py-2 rounded hover:bg-gray-800"
         >
           {loading ? 'Creating...' : 'Create Tag'}
         </button>
