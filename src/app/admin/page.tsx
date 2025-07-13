@@ -1,69 +1,80 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import Link from 'next/link'
+import { createClient } from '@supabase/supabase-js'
+import { BackButton } from '@/components/BackButton'
 
-type Tag = {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+type TagWithUser = {
   id: string
   title: string
   description: string
   featured: boolean
   hidden: boolean
-  user_email?: string
+  users?: { email: string }[] | null
 }
 
 export default function AdminPage() {
-  const [tags, setTags] = useState<Tag[]>([])
-  const [loading, setLoading] = useState(true)
+  const [tags, setTags] = useState<TagWithUser[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchTags = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .select('id, title, description, featured, hidden, users:users(email)')
         .order('id', { ascending: false })
 
-      const enriched = (data || []).map((tag: any) => ({
-        id: tag.id,
-        title: tag.title,
-        description: tag.description,
-        featured: tag.featured,
-        hidden: tag.hidden,
-        user_email: tag.users?.email || '',
-      }))
-
-      setTags(enriched)
-      setLoading(false)
+      if (error) {
+        console.error('Error fetching tags:', error)
+        setError('Failed to fetch tags')
+      } else {
+        setTags(data || [])
+      }
     }
 
     fetchTags()
   }, [])
 
-  if (loading) {
-    return <div className="p-6 text-center text-gray-500">Loading tags...</div>
-  }
-
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Admin Panel</h1>
-      <div className="grid gap-4">
-        {tags.map((tag) => (
-          <div key={tag.id} className="border p-4 rounded shadow-sm">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-semibold">{tag.title}</h2>
-              <Link href={`/tag/${tag.id}`} className="text-sm text-blue-600 hover:underline">
-                View Tag
-              </Link>
-            </div>
-            <p className="text-sm text-gray-600">{tag.description}</p>
-            <p className="text-xs text-gray-400 mt-2">
-              📧 {tag.user_email || 'Unknown'} · {tag.featured ? '🌟 Featured' : '—'} ·{' '}
-              {tag.hidden ? '🙈 Hidden' : 'Visible'}
-            </p>
-          </div>
-        ))}
-      </div>
+    <div className="max-w-6xl mx-auto p-6">
+      <BackButton />
+      <h1 className="text-3xl font-bold mb-6 text-center">Admin Panel</h1>
+
+      {error && <p className="text-red-500 mb-4">{error}</p>}
+
+      {tags.length === 0 ? (
+        <p className="text-center text-gray-600">No tags found.</p>
+      ) : (
+        <table className="w-full text-sm border-collapse border">
+          <thead>
+            <tr className="bg-gray-100 text-left">
+              <th className="p-2 border">ID</th>
+              <th className="p-2 border">Title</th>
+              <th className="p-2 border">Description</th>
+              <th className="p-2 border">Email</th>
+              <th className="p-2 border">Featured</th>
+              <th className="p-2 border">Hidden</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tags.map((tag) => (
+              <tr key={tag.id} className="border-t hover:bg-gray-50">
+                <td className="p-2 border">{tag.id}</td>
+                <td className="p-2 border">{tag.title}</td>
+                <td className="p-2 border">{tag.description}</td>
+                <td className="p-2 border">{tag.users?.[0]?.email ?? 'N/A'}</td>
+                <td className="p-2 border">{tag.featured ? '✅' : '❌'}</td>
+                <td className="p-2 border">{tag.hidden ? '🙈' : '👁️'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }
