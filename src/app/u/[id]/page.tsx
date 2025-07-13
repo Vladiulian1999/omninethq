@@ -23,9 +23,6 @@ export default function UserPage() {
         data: { session },
       } = await supabase.auth.getSession()
 
-      console.log('👤 Session user ID:', session?.user?.id)
-      console.log('🔗 URL user ID:', userIdFromUrl)
-
       setSession(session)
 
       const { data: userData } = await supabase
@@ -87,8 +84,6 @@ export default function UserPage() {
     const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
     const publicUrl = data?.publicUrl
 
-    console.log('🖼 Public avatar URL:', publicUrl)
-
     if (publicUrl) {
       setAvatarUrl(`${publicUrl}?t=${Date.now()}`)
 
@@ -109,19 +104,22 @@ export default function UserPage() {
   }
 
   if (session?.user.id !== userIdFromUrl) {
-    console.log('❌ BLOCKED: session ID does not match profile ID')
-    return <div className="text-center text-red-500 p-6">❌ You cannot edit this profile.</div>
+    return (
+      <div className="text-center text-red-500 p-6">
+        ❌ You cannot edit this profile.
+      </div>
+    )
   }
 
   return (
-    <div className="max-w-xl mx-auto p-6">
+    <div className="max-w-md mx-auto px-4 py-6">
       <BackButton />
 
-      <h1 className="text-2xl font-bold mb-4">User Profile</h1>
+      <h1 className="text-xl font-bold mb-6 text-center">User Profile</h1>
 
-      <div className="mb-4">
-        <label className="block mb-1">Avatar</label>
-        <div className="mb-2">
+      <div className="mb-5">
+        <label className="block text-sm font-medium mb-1">Avatar</label>
+        <div className="mb-3">
           {avatarUrl && (
             <Image
               src={avatarUrl}
@@ -137,28 +135,29 @@ export default function UserPage() {
       </div>
 
       <div className="mb-4">
-        <label className="block mb-1">Username</label>
+        <label className="block text-sm font-medium mb-1">Username</label>
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="w-full border p-2 rounded"
+          className="w-full border p-2 rounded text-sm"
         />
       </div>
 
-      <div className="mb-4">
-        <label className="block mb-1">Bio</label>
+      <div className="mb-5">
+        <label className="block text-sm font-medium mb-1">Bio</label>
         <textarea
           value={bio}
           onChange={(e) => setBio(e.target.value)}
-          className="w-full border p-2 rounded"
+          className="w-full border p-2 rounded text-sm"
+          rows={3}
         />
       </div>
 
       <button
         onClick={handleSave}
         disabled={saving}
-        className="bg-black text-white px-4 py-2 rounded"
+        className="w-full bg-black text-white py-2 rounded hover:bg-gray-800 transition text-sm"
       >
         {saving ? 'Saving...' : 'Save Changes'}
       </button>
