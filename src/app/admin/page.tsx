@@ -9,7 +9,9 @@ type TagWithUser = {
   description: string
   featured: boolean
   hidden: boolean
-  users: { email: string }[]
+  users: {
+    email: string
+  }[]
 }
 
 export default function AdminPage() {
@@ -18,8 +20,9 @@ export default function AdminPage() {
   useEffect(() => {
     const fetchTags = async () => {
       const { data, error } = await supabase
-        .from('messages')
+        .from('tags')
         .select('id, title, description, featured, hidden, users(email)')
+        .order('created_at', { ascending: false })
 
       console.log('📦 DATA:', data)
       console.log('⚠️ ERROR:', error)
@@ -46,7 +49,7 @@ export default function AdminPage() {
             <li key={tag.id} className="border p-4 rounded shadow">
               <div className="flex justify-between items-center mb-1">
                 <h2 className="text-lg font-semibold">{tag.title}</h2>
-                {tag.users[0]?.email && (
+                {tag.users?.[0]?.email && (
                   <span className="text-xs text-gray-500">
                     Owner: {tag.users[0].email}
                   </span>
