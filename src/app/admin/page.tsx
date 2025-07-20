@@ -18,6 +18,7 @@ type TagWithUser = {
 
 export default function AdminPage() {
   const [tags, setTags] = useState<TagWithUser[]>([])
+  const [filter, setFilter] = useState<'all' | 'featured' | 'hidden'>('all')
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -74,15 +75,63 @@ export default function AdminPage() {
     }
   }
 
+  const deleteTag = async (tagId: string) => {
+    const confirmDelete = confirm('Are you sure you want to delete this tag?')
+    if (!confirmDelete) return
+
+    const { error } = await supabase.from('tags').delete().eq('id', tagId)
+
+    if (error) {
+      toast.error('Failed to delete tag')
+      console.error(error)
+    } else {
+      toast.success('Tag deleted')
+      setTags((prev) => prev.filter((tag) => tag.id !== tagId))
+    }
+  }
+
+  const filteredTags = tags.filter((tag) => {
+    if (filter === 'featured') return tag.featured
+    if (filter === 'hidden') return tag.hidden
+    return true
+  })
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6 text-center">Admin Panel</h1>
 
-      {tags.length === 0 ? (
-        <p className="text-center text-gray-500">No tags found.</p>
+      <div className="mb-6 flex justify-center gap-4">
+        <button
+          onClick={() => setFilter('all')}
+          className={`px-4 py-1 rounded ${
+            filter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+          }`}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilter('featured')}
+          className={`px-4 py-1 rounded ${
+            filter === 'featured' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+          }`}
+        >
+          Featured
+        </button>
+        <button
+          onClick={() => setFilter('hidden')}
+          className={`px-4 py-1 rounded ${
+            filter === 'hidden' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+          }`}
+        >
+          Hidden
+        </button>
+      </div>
+
+      {filteredTags.length === 0 ? (
+        <p className="text-center text-gray-500">No tags found for this filter.</p>
       ) : (
         <ul className="space-y-4">
-          {tags.map((tag) => (
+          {filteredTags.map((tag) => (
             <li key={tag.id} className="border p-4 rounded shadow">
               <div className="flex justify-between items-center mb-2">
                 <h2 className="text-lg font-semibold">{tag.title}</h2>
@@ -97,7 +146,7 @@ export default function AdminPage() {
                 ID: {tag.id} • {tag.featured ? '🌟 Featured' : ''}{' '}
                 {tag.hidden ? '🚫 Hidden' : ''}
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-3 flex-wrap">
                 <button
                   onClick={() => toggleFeatured(tag.id, tag.featured)}
                   className="text-sm px-3 py-1 rounded bg-blue-100 hover:bg-blue-200"
@@ -109,6 +158,12 @@ export default function AdminPage() {
                   className="text-sm px-3 py-1 rounded bg-yellow-100 hover:bg-yellow-200"
                 >
                   {tag.hidden ? 'Unhide' : 'Hide'}
+                </button>
+                <button
+                  onClick={() => deleteTag(tag.id)}
+                  className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700"
+                >
+                  Delete
                 </button>
               </div>
             </li>
