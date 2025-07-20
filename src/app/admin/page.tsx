@@ -21,7 +21,8 @@ export default function AdminPage() {
     const fetchTags = async () => {
       const { data, error } = await supabase
         .from('tags')
-        .select('id, title, description, featured, hidden, users(email)')
+       .select('id, title, description, featured, hidden, user_id, users:users(email)')
+
         .order('created_at', { ascending: false })
 
       if (error) {
