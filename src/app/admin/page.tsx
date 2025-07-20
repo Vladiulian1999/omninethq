@@ -9,7 +9,7 @@ type TagWithUser = {
   description: string
   featured: boolean
   hidden: boolean
-  users: { email: string }[] // ✅ Supabase returns an array
+  users: { email: string }[]
 }
 
 export default function AdminPage() {
@@ -20,6 +20,9 @@ export default function AdminPage() {
       const { data, error } = await supabase
         .from('messages')
         .select('id, title, description, featured, hidden, users(email)')
+
+      console.log('📦 DATA:', data)
+      console.log('⚠️ ERROR:', error)
 
       if (error) {
         console.error('Error fetching tags:', error)
@@ -33,26 +36,26 @@ export default function AdminPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Admin Panel</h1>
+      <h1 className="text-3xl font-bold mb-6 text-center">Admin Panel</h1>
 
       {tags.length === 0 ? (
-        <p className="text-gray-600">No tags found.</p>
+        <p className="text-center text-gray-500">No tags found.</p>
       ) : (
         <ul className="space-y-4">
           {tags.map((tag) => (
-            <li key={tag.id} className="p-4 border rounded bg-white shadow">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-semibold">{tag.title}</h2>
-                  <p className="text-sm text-gray-600">{tag.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Owner: {tag.users?.[0]?.email || 'Unknown'}
-                  </p>
-                </div>
-                <div className="text-sm text-right">
-                  <p>⭐ Featured: {tag.featured ? 'Yes' : 'No'}</p>
-                  <p>🙈 Hidden: {tag.hidden ? 'Yes' : 'No'}</p>
-                </div>
+            <li key={tag.id} className="border p-4 rounded shadow">
+              <div className="flex justify-between items-center mb-1">
+                <h2 className="text-lg font-semibold">{tag.title}</h2>
+                {tag.users[0]?.email && (
+                  <span className="text-xs text-gray-500">
+                    Owner: {tag.users[0].email}
+                  </span>
+                )}
+              </div>
+              <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
+              <div className="text-xs text-gray-400">
+                ID: {tag.id} • {tag.featured ? '🌟 Featured' : ''}{' '}
+                {tag.hidden ? '🚫 Hidden' : ''}
               </div>
             </li>
           ))}
