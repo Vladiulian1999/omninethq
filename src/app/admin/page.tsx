@@ -24,12 +24,18 @@ export default function AdminPage() {
         .select('id, title, description, featured, hidden, users(email)')
         .order('created_at', { ascending: false })
 
-      console.log('📦 DATA:', data)
-      console.log('⚠️ ERROR:', error)
-
       if (error) {
-        console.error('Error fetching tags:', error)
+        console.error('❌ Supabase fetch error:', JSON.stringify(error, null, 2))
+
+        // Fallback: Try fetching tags without join to debug join issue
+        const fallback = await supabase
+          .from('tags')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        console.log('🔎 Fallback fetch result:', fallback)
       } else {
+        console.log('✅ Tags fetched:', data)
         setTags(data as TagWithUser[])
       }
     }
