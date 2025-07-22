@@ -11,6 +11,8 @@ type TagWithUser = {
   featured: boolean
   hidden: boolean
   user_id: string
+  scan_count: number
+  created_at: string
   users: {
     email: string
   }[]
@@ -19,13 +21,14 @@ type TagWithUser = {
 export default function AdminPage() {
   const [tags, setTags] = useState<TagWithUser[]>([])
   const [filter, setFilter] = useState<'all' | 'featured' | 'hidden'>('all')
+  const [sortBy, setSortBy] = useState<'recent' | 'scanned' | 'title'>('recent')
 
   useEffect(() => {
     const fetchTags = async () => {
       const { data, error } = await supabase
         .from('tags')
-        .select('id, title, description, featured, hidden, user_id, users:users(email)')
-        .order('created_at', { ascending: false })
+        .select('id, title, description, featured, hidden, user_id, scan_count, created_at, users:users(email)')
+        .order('created_at', { ascending: false }) // default order, will re-sort client-side too
 
       if (error) {
         console.error('❌ Supabase fetch error:', JSON.stringify(error, null, 2))
@@ -37,6 +40,25 @@ export default function AdminPage() {
 
     fetchTags()
   }, [])
+
+  const filteredTags = tags
+    .filter((tag) => {
+      if (filter === 'featured') return tag.featured
+      if (filter === 'hidden') return tag.hidden
+      return true
+    })
+    .sort((a, b) => {
+      if (sortBy === 'recent') {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }
+      if (sortBy === 'scanned') {
+        return (b.scan_count || 0) - (a.scan_count || 0)
+      }
+      if (sortBy === 'title') {
+        return a.title.localeCompare(b.title)
+      }
+      return 0
+    })
 
   const toggleFeatured = async (tagId: string, current: boolean) => {
     const { error } = await supabase
@@ -87,41 +109,49 @@ export default function AdminPage() {
     }
   }
 
-  const filteredTags = tags.filter((tag) => {
-    if (filter === 'featured') return tag.featured
-    if (filter === 'hidden') return tag.hidden
-    return true
-  })
-
   return (
     <div className="max-w-5xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6 text-center">Admin Panel</h1>
 
-      <div className="mb-6 flex justify-center gap-4">
-        <button
-          onClick={() => setFilter('all')}
-          className={`px-4 py-1 rounded ${
-            filter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200'
-          }`}
+      <div className="mb-6 flex flex-wrap justify-center gap-4 items-center">
+        {/* Filter buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFilter('all')}
+            className={`px-4 py-1 rounded ${
+              filter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilter('featured')}
+            className={`px-4 py-1 rounded ${
+              filter === 'featured' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+            }`}
+          >
+            Featured
+          </button>
+          <button
+            onClick={() => setFilter('hidden')}
+            className={`px-4 py-1 rounded ${
+              filter === 'hidden' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+            }`}
+          >
+            Hidden
+          </button>
+        </div>
+
+        {/* Sort dropdown */}
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as 'recent' | 'scanned' | 'title')}
+          className="px-3 py-1 rounded border border-gray-300 text-sm"
         >
-          All
-        </button>
-        <button
-          onClick={() => setFilter('featured')}
-          className={`px-4 py-1 rounded ${
-            filter === 'featured' ? 'bg-blue-600 text-white' : 'bg-gray-200'
-          }`}
-        >
-          Featured
-        </button>
-        <button
-          onClick={() => setFilter('hidden')}
-          className={`px-4 py-1 rounded ${
-            filter === 'hidden' ? 'bg-blue-600 text-white' : 'bg-gray-200'
-          }`}
-        >
-          Hidden
-        </button>
+          <option value="recent">Sort by Most Recent</option>
+          <option value="scanned">Sort by Most Scanned</option>
+          <option value="title">Sort by Title (A–Z)</option>
+        </select>
       </div>
 
       {filteredTags.length === 0 ? (
@@ -140,7 +170,7 @@ export default function AdminPage() {
               </div>
               <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
               <div className="text-xs text-gray-400 mb-2">
-                ID: {tag.id} • {tag.featured ? '🌟 Featured' : ''}{' '}
+                ID: {tag.id} • Scans: {tag.scan_count ?? 0} • {tag.featured ? '🌟 Featured' : ''}{' '}
                 {tag.hidden ? '🚫 Hidden' : ''}
               </div>
               <div className="flex gap-3 flex-wrap">
