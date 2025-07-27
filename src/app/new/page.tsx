@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { BackButton } from '@/components/BackButton'
@@ -13,6 +13,7 @@ function generateId(prefix = 'tag') {
 
 export default function NewTagPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [id, setId] = useState('')
   const [title, setTitle] = useState('')
@@ -34,7 +35,16 @@ export default function NewTagPage() {
 
     getUser()
     setId(generateId())
-  }, [router])
+
+    // Prefill from template
+    const t = searchParams.get('title')
+    const d = searchParams.get('description')
+    const c = searchParams.get('category')
+
+    if (t) setTitle(t)
+    if (d) setDescription(d)
+    if (c) setCategory(c)
+  }, [router, searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,7 +82,6 @@ export default function NewTagPage() {
   return (
     <div className="max-w-xl mx-auto px-4 py-6">
       <BackButton />
-
       <h1 className="text-3xl font-bold mb-6 text-center">Create a New OmniTag</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded shadow">

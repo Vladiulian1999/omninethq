@@ -18,24 +18,55 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    let error = null
+    let authError = null
 
     if (mode === 'login') {
       const res = await supabase.auth.signInWithPassword({ email, password })
-      error = res.error
+      authError = res.error
     } else {
-      const res = await supabase.auth.signUp({
+      const referralCode = localStorage.getItem('referral_code')?.trim() || ''
+
+      const signUpRes = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${location.origin}/explore`,
         },
       })
-      error = res.error
+
+      authError = signUpRes.error
+
+      if (!authError && signUpRes.data?.user) {
+        const newUserId = signUpRes.data.user.id
+
+        // 1. Set their referral_code to their own id
+        await supabase
+          .from('users')
+          .update({ referral_code: newUserId })
+          .eq('id', newUserId)
+
+        // 2. Link to referrer if code exists
+        if (referralCode) {
+          const refLookup = await supabase
+            .from('users')
+            .select('id')
+            .eq('referral_code', referralCode)
+            .single()
+
+          const referredBy = refLookup.data?.id || null
+
+          if (referredBy) {
+            await supabase
+              .from('users')
+              .update({ referred_by: referredBy })
+              .eq('id', newUserId)
+          }
+        }
+      }
     }
 
-    if (error) {
-      setError(error.message)
+    if (authError) {
+      setError(authError.message)
       setLoading(false)
     } else {
       router.push('/explore')

@@ -1,6 +1,9 @@
+'use client'
+
 import './globals.css'
 import Link from 'next/link'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import HeaderControls from '@/components/HeaderControls'
 
 export const metadata = {
@@ -9,6 +12,17 @@ export const metadata = {
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  // Capture and store referral code on route change
+  useEffect(() => {
+    const ref = searchParams.get('ref')
+    if (ref) {
+      localStorage.setItem('referral_code', ref)
+    }
+  }, [pathname, searchParams])
+
   return (
     <html lang="en">
       <body className="min-h-screen bg-gray-50 text-black">
