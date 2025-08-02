@@ -3,7 +3,7 @@ const nextConfig = {
   images: {
     domains: [
       'tuysxhhlwsuehadbvrdi.supabase.co',
-      '1drv.ms' // ✅ Added Microsoft OneDrive domain
+      '1drv.ms' // ✅ Microsoft OneDrive domain
     ],
   },
 }

@@ -6,7 +6,6 @@ import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import Link from 'next/link'
 import ScanAnalytics from '@/components/ScanAnalytics'
-import { AvailabilityForm } from './AvailabilityForm'
 import { BackButton } from '@/components/BackButton'
 import toast, { Toaster } from 'react-hot-toast'
 
@@ -39,7 +38,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [scanCount, setScanCount] = useState<number>(0)
-  const [availability, setAvailability] = useState<any[]>([])
   const qrRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -71,7 +69,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser()
       setUserId(data?.user?.id || null)
-      return data?.user?.id || null
     }
 
     const logScan = async () => {
@@ -85,19 +82,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     fetchTag()
     fetchFeedback()
-    getUser().then((uid) => {
-      if (uid) {
-        const fetchAvailability = async () => {
-          const { data: availability } = await supabase
-            .from('availability')
-            .select('*')
-            .eq('tag_id', tagId)
-            .eq('user_id', uid)
-          setAvailability(availability || [])
-        }
-        fetchAvailability()
-      }
-    })
+    getUser()
     logScan()
   }, [tagId])
 
@@ -246,12 +231,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </div>
 
       <ScanAnalytics data={scanChartData} />
-
-      {isOwner && (
-        <div className="my-8">
-          <AvailabilityForm tagId={tagId} userId={userId!} initialAvailability={availability} />
-        </div>
-      )}
 
       <hr className="my-8 border-gray-300" />
 

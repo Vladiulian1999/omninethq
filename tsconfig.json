@@ -33,6 +33,7 @@
   ],
   "exclude": [
     ".next",
-    "node_modules"
+    "node_modules",
+    "supabase/functions"   // ✅ ADD THIS LINE
   ]
 }
