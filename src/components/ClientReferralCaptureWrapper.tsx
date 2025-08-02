@@ -3,10 +3,10 @@
 import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
 
-// Load the actual component with SSR disabled
-const ClientReferralCapture = dynamic(() => import('./ClientReferralCaptureWrapper'), {
-  ssr: false,
-})
+const ClientReferralCapture = dynamic(
+  () => import('./ClientReferralCaptureWrapper'),
+  { ssr: false }
+)
 
 export default function ClientReferralCaptureWrapper() {
   return (
