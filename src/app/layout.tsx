@@ -1,7 +1,7 @@
 import './globals.css'
 import { Inter } from 'next/font/google'
 import { Toaster } from 'react-hot-toast'
-import { Suspense } from 'react'
+import NavAuth from '@/components/NavAuth'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -18,10 +18,18 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {/* ✅ Global Suspense around pages is fine to keep, but not required for the script */}
-        <Suspense fallback={null}>{children}</Suspense>
+        {/* simple top bar with Login/My/Logout */}
+        <header className="w-full border-b bg-white">
+          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+            <a href="/" className="font-semibold">OmniNet</a>
+            <NavAuth />
+          </div>
+        </header>
 
-        {/* ✅ Minimal, rock-solid referral capture (no hooks, no Suspense, no dynamic) */}
+        {/* page content */}
+        {children}
+
+        {/* referral capture script (keep) */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
