@@ -1,7 +1,7 @@
 import './globals.css'
 import { Inter } from 'next/font/google'
 import { Toaster } from 'react-hot-toast'
-import ClientReferralCaptureWrapper from '@/components/ClientReferralCaptureWrapper'
+import { Suspense } from 'react'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -18,10 +18,23 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        {children}
+        {/* ✅ Global Suspense around pages is fine to keep, but not required for the script */}
+        <Suspense fallback={null}>{children}</Suspense>
+
+        {/* ✅ Minimal, rock-solid referral capture (no hooks, no Suspense, no dynamic) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var sp = new URLSearchParams(window.location.search);
+                var ref = sp.get('ref');
+                if (ref) localStorage.setItem('referral_code', ref);
+              } catch (e) {}
+            `,
+          }}
+        />
+
         <Toaster />
-        {/* ✅ Safe client-only code, wrapped properly */}
-        <ClientReferralCaptureWrapper />
       </body>
     </html>
   )
