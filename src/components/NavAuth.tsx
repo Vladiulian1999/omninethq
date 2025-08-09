@@ -11,7 +11,7 @@ export default function NavAuth() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const { data, error } = await supabase.auth.getUser()
+      const { data } = await supabase.auth.getUser()
       if (mounted) {
         setUserId(data?.user?.id ?? null)
         setLoading(false)
@@ -26,7 +26,15 @@ export default function NavAuth() {
   if (loading) return null
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
+      {/* Create is always visible; /new already protects/redirects */}
+      <Link
+        href="/new"
+        className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-800"
+      >
+        Create
+      </Link>
+
       {userId ? (
         <>
           <Link
@@ -34,6 +42,12 @@ export default function NavAuth() {
             className="px-3 py-1.5 rounded bg-gray-900 text-white text-sm hover:bg-black"
           >
             My
+          </Link>
+          <Link
+            href={`/u/${userId}`}
+            className="px-3 py-1.5 rounded bg-gray-200 text-sm hover:bg-gray-300"
+          >
+            Profile
           </Link>
           <Link
             href="/logout"
@@ -45,7 +59,7 @@ export default function NavAuth() {
       ) : (
         <Link
           href="/login"
-          className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-800"
+          className="px-3 py-1.5 rounded bg-gray-200 text-sm hover:bg-gray-300"
         >
           Login
         </Link>
