@@ -29,6 +29,51 @@ type Props = {
   scanChartData: { date: string; count: number }[]
 }
 
+/** A2HS prompt nudge (inlined) */
+function A2HSNudge() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const [show, setShow] = useState(false)
+
+  useEffect(() => {
+    // only show once per device
+    if (typeof window === 'undefined') return
+    if (localStorage.getItem('a2hs_seen')) return
+
+    const handler = (e: any) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+      setShow(true)
+    }
+
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const install = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    await deferredPrompt.userChoice
+    localStorage.setItem('a2hs_seen', '1')
+    setShow(false)
+  }
+
+  if (!show) return null
+
+  return (
+    <div className="fixed bottom-4 inset-x-4 z-50 bg-white border shadow-lg rounded-2xl p-4 flex items-center justify-between">
+      <span className="text-sm">Add OmniNet to your home screen for 1-tap access.</span>
+      <div className="flex gap-2">
+        <button className="px-3 py-1 border rounded-xl" onClick={() => setShow(false)}>
+          Not now
+        </button>
+        <button className="px-3 py-1 border rounded-xl" onClick={install}>
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function TagClient({ tagId, scanChartData }: Props) {
   const [data, setData] = useState<any>(null)
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([])
@@ -88,6 +133,35 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const isOwner = userId && data?.user_id && userId === data.user_id
 
+  // Referral-aware Stripe checkout
+  async function startCheckout(tagId: string, amountCents = 500) {
+    try {
+      const refCode =
+        (typeof window !== 'undefined' && localStorage.getItem('referral_code')) || ''
+
+      const res = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, refCode, amountCents }),
+      })
+
+      const { url, error } = await res.json()
+      if (error) {
+        console.error(error)
+        toast.error('❌ Failed to create Stripe session')
+        return
+      }
+      if (url) {
+        window.location.href = url
+      } else {
+        toast.error('❌ No checkout URL returned')
+      }
+    } catch (e) {
+      console.error(e)
+      toast.error('❌ Could not start checkout')
+    }
+  }
+
   const handleDownload = async () => {
     if (!qrRef.current) return
     const dataUrl = await toPng(qrRef.current)
@@ -99,28 +173,44 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }
 
   const handleCopyLink = () => {
-    const url = `https://omninethq.co.uk/tag/${tagId}`
+    const base = typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk'
+    const url = `${base}/tag/${tagId}`
     navigator.clipboard.writeText(url)
     toast.success('🔗 Link copied to clipboard!')
   }
 
-  const handleDonate = async () => {
-    const res = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId }),
-    })
+  // Share handler (Web Share API + clipboard fallback)
+  const handleShare = async () => {
+    try {
+      const title = typeof document !== 'undefined' ? document.title : 'OmniNet Tag'
+      const url =
+        typeof window !== 'undefined'
+          ? window.location.href
+          : `https://omninethq.co.uk/tag/${tagId}`
+      const shareData = { title, url }
 
-    const data = await res.json()
-    if (data?.url) {
-      window.location.href = data.url
-    } else {
-      toast.error('❌ Failed to create Stripe session')
+      if (typeof navigator !== 'undefined' && 'share' in navigator && (navigator as any).share) {
+        try {
+          await (navigator as any).share(shareData)
+          return
+        } catch {
+          return // user canceled; do nothing
+        }
+      }
+
+      await navigator.clipboard.writeText(shareData.url)
+      toast.success('🔗 Link copied to clipboard!')
+    } catch {
+      toast.error('❌ Could not share right now')
     }
   }
 
   const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (rating === '' || Number.isNaN(rating)) {
+      toast.error('Please select a rating.')
+      return
+    }
     const { error } = await supabase.from('feedback').insert([{
       tag_id: tagId,
       name: name || 'Anonymous',
@@ -195,6 +285,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   return (
     <div className="p-10 text-center">
       <Toaster position="top-center" />
+      <A2HSNudge />
       <BackButton />
 
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
@@ -223,10 +314,31 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
 
-        <div className="flex gap-3 mt-2">
-          <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">📥 Download QR</button>
-          <button onClick={handleCopyLink} className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm">🔗 Copy Link</button>
-          <button onClick={handleDonate} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm">💸 Support this Tag</button>
+        <div className="flex flex-wrap justify-center gap-3 mt-2">
+          <button
+            onClick={handleDownload}
+            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
+          >
+            📥 Download QR
+          </button>
+          <button
+            onClick={handleCopyLink}
+            className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
+          >
+            🔗 Copy Link
+          </button>
+          <button
+            onClick={handleShare}
+            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
+          >
+            📣 Share
+          </button>
+          <button
+            onClick={() => startCheckout(tagId, 500)} // £5.00 default (500 pence)
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
+          >
+            💸 Support this Tag
+          </button>
         </div>
       </div>
 
@@ -247,7 +359,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           <li key={f.id} className="border p-3 rounded bg-white shadow">
             <div className="flex justify-between items-center mb-1">
               <p className="text-sm text-gray-700">⭐ {f.rating} by {f.name}</p>
-              {userId && (
+              {isOwner && (
                 <button
                   onClick={() => handleDeleteFeedback(f.id)}
                   className="text-xs text-red-600 hover:underline"
@@ -262,15 +374,36 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </ul>
 
       <form onSubmit={handleSubmitFeedback} className="space-y-3 text-left max-w-md mx-auto">
-        <input className="w-full border p-2 rounded" placeholder="Your name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-        <textarea className="w-full border p-2 rounded" placeholder="Your comment..." value={message} onChange={(e) => setMessage(e.target.value)} required />
-        <select className="w-full border p-2 rounded" value={rating} onChange={(e) => setRating(Number(e.target.value))} required>
+        <input
+          className="w-full border p-2 rounded"
+          placeholder="Your name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <textarea
+          className="w-full border p-2 rounded"
+          placeholder="Your comment..."
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          required
+        />
+        <select
+          className="w-full border p-2 rounded"
+          value={rating}
+          onChange={(e) => {
+            const v = e.target.value
+            setRating(v === '' ? '' : parseInt(v, 10))
+          }}
+          required
+        >
           <option value="">Rate this tag</option>
           {[1, 2, 3, 4, 5].map((r) => (
             <option key={r} value={r}>{r} ⭐</option>
           ))}
         </select>
-        <button type="submit" className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800">Submit Feedback</button>
+        <button type="submit" className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800">
+          Submit Feedback
+        </button>
       </form>
     </div>
   )

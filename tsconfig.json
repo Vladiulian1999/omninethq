@@ -16,13 +16,9 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"] // ensures @/components/... works
     },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+    "plugins": [{ "name": "next" }]
   },
   "include": [
     "**/*.ts",
@@ -34,6 +30,6 @@
   "exclude": [
     ".next",
     "node_modules",
-    "supabase/functions"   // ✅ ADD THIS LINE
+    "supabase/functions" // exclude edge function sources from TS project
   ]
 }
