@@ -2,15 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-export const runtime = 'nodejs';
+export const runtime = 'nodejs';          // ensure Node runtime
+export const dynamic = 'force-dynamic';   // never pre-render this route
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11-15' });
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+// Lazy init so it doesn’t run at build time
+function getServiceSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing');
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing');
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get('stripe-signature');
@@ -19,7 +23,7 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
 
   try {
-    const raw = await req.text(); // raw body required
+    const raw = await req.text(); // raw body for Stripe verification
     event = stripe.webhooks.constructEvent(raw, signature, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (err: any) {
     return NextResponse.json(
@@ -30,14 +34,14 @@ export async function POST(req: NextRequest) {
 
   try {
     if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
+      const supabase = getServiceSupabase();  // create client at runtime now
 
+      const session = event.data.object as Stripe.Checkout.Session;
       const amount = session.amount_total ?? 0;
       const currency = session.currency?.toLowerCase() ?? 'gbp';
       const stripeSessionId = session.id;
       const tagId = session.metadata?.tagId ?? null;
-      const refCodeRaw = session.metadata?.refCode ?? '';
-      const refCode = refCodeRaw ? String(refCodeRaw).toLowerCase() : null;
+      const refCode = (session.metadata?.refCode ?? '').toString().toLowerCase() || null;
 
       // Resolve referrer user by referral_code (optional)
       let referrer_user_id: string | null = null;
@@ -62,7 +66,6 @@ export async function POST(req: NextRequest) {
           referrer_user_id,
         });
 
-      // Ignore duplicates (webhook retries)
       if (insertErr && !String(insertErr.message).includes('duplicate key')) {
         throw insertErr;
       }
