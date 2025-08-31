@@ -36,15 +36,13 @@ export async function POST(req: NextRequest) {
       const currency = (s.currency ?? 'gbp').toLowerCase();
       const stripeSessionId = s.id;
 
-      // Accept your short tag IDs like "tag-2eb00"
       const tagIdRaw = (s.metadata?.tagId ?? '').toString();
-      const tagId = tagIdRaw.replace(/[<>\s]/g, ''); // sanitize
+      const tagId = tagIdRaw.replace(/[<>\s]/g, ''); // your short ids like "tag-2eb00"
       const refCodeRaw = (s.metadata?.refCode ?? '').toString();
       const refCode = refCodeRaw.trim().toLowerCase() || null;
 
-      console.log('[webhook] session', {
-        id: stripeSessionId, amount, currency, tagIdRaw, tagId, refCode
-      });
+      console.log('[webhook] env project', (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/https?:\/\//, ''));
+      console.log('[webhook] session', { id: stripeSessionId, amount, currency, tagIdRaw, tagId, refCode });
 
       if (!tagId) {
         console.warn('[webhook] missing tagId; skipping insert');
@@ -64,23 +62,30 @@ export async function POST(req: NextRequest) {
         referrer_user_id = refUser?.id ?? null;
       }
 
-      const { error: insertErr } = await supabase
+      // Insert and SELECT back so we can see what happened
+      const { data: inserted, error: insertErr } = await supabase
         .from('donations')
         .insert({
-          tag_id: tagId,                 // now TEXT, not UUID
+          tag_id: tagId,               // TEXT
           amount_cents: amount,
           currency,
           stripe_session_id: stripeSessionId,
           referral_code: refCode,
           referrer_user_id
-        });
+        })
+        .select()
+        .maybeSingle();
 
       if (insertErr) {
         const msg = String(insertErr.message || '');
         if (!msg.includes('duplicate key')) {
-          console.error('[webhook] insert error:', insertErr);
+          console.error('[webhook] insert error:', msg);
           throw insertErr;
+        } else {
+          console.log('[webhook] duplicate session id; safe to ignore');
         }
+      } else {
+        console.log('[webhook] inserted row', inserted);
       }
     }
 
