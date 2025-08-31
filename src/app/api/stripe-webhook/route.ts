@@ -15,17 +15,13 @@ function getServiceSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function isUuid(v?: string | null) {
-  return !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
-
 export async function POST(req: NextRequest) {
   const signature = req.headers.get('stripe-signature');
   if (!signature) return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
 
   let event: Stripe.Event;
   try {
-    const raw = await req.text(); // raw body required
+    const raw = await req.text();
     event = stripe.webhooks.constructEvent(raw, signature, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (err: any) {
     console.error('[webhook] signature fail:', err?.message);
@@ -40,25 +36,18 @@ export async function POST(req: NextRequest) {
       const currency = (s.currency ?? 'gbp').toLowerCase();
       const stripeSessionId = s.id;
 
+      // Accept your short tag IDs like "tag-2eb00"
       const tagIdRaw = (s.metadata?.tagId ?? '').toString();
+      const tagId = tagIdRaw.replace(/[<>\s]/g, ''); // sanitize
       const refCodeRaw = (s.metadata?.refCode ?? '').toString();
-
-      const tagIdClean = tagIdRaw.replace(/[<>\s]/g, '');
-      const tagId = isUuid(tagIdClean) ? tagIdClean : null;
       const refCode = refCodeRaw.trim().toLowerCase() || null;
 
       console.log('[webhook] session', {
-        id: stripeSessionId,
-        amount,
-        currency,
-        tagIdRaw,
-        tagId,
-        refCode,
+        id: stripeSessionId, amount, currency, tagIdRaw, tagId, refCode
       });
 
-      // If tagId missing/invalid, skip insert to avoid DB errors
       if (!tagId) {
-        console.warn('[webhook] missing/invalid tagId, skipping insert');
+        console.warn('[webhook] missing tagId; skipping insert');
         return NextResponse.json({ received: true }, { status: 200 });
       }
 
@@ -75,14 +64,16 @@ export async function POST(req: NextRequest) {
         referrer_user_id = refUser?.id ?? null;
       }
 
-      const { error: insertErr } = await supabase.from('donations').insert({
-        tag_id: tagId,
-        amount_cents: amount,
-        currency,
-        stripe_session_id: stripeSessionId,
-        referral_code: refCode,
-        referrer_user_id,
-      });
+      const { error: insertErr } = await supabase
+        .from('donations')
+        .insert({
+          tag_id: tagId,                 // now TEXT, not UUID
+          amount_cents: amount,
+          currency,
+          stripe_session_id: stripeSessionId,
+          referral_code: refCode,
+          referrer_user_id
+        });
 
       if (insertErr) {
         const msg = String(insertErr.message || '');
