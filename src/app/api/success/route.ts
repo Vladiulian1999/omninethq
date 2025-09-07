@@ -14,11 +14,9 @@ export async function GET(req: NextRequest) {
     const sessionId = searchParams.get("session_id");
 
     if (!sessionId) {
-      // Allow page to render a generic success even without a session (just in case)
       return NextResponse.json({ ok: true });
     }
 
-    // Retrieve the session securely (server-side)
     const s = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ["customer_details"],
     });

@@ -8,6 +8,6 @@ export default function Page({
   searchParams: { session_id?: string; tag?: string };
 }) {
   const sessionId = searchParams?.session_id || "";
-  const tagFromQS = searchParams?.tag || ""; // optional fallback
+  const tagFromQS = searchParams?.tag || "";
   return <SuccessClient sessionId={sessionId} tagFromQS={tagFromQS} />;
 }

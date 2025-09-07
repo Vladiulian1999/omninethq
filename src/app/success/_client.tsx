@@ -21,6 +21,26 @@ type SuccessInfo = {
   error?: string;
 };
 
+type VariantKey = "InviteFriend" | "SupportLocal" | "DiscoverMore";
+
+const VARIANTS: Record<VariantKey, { title: string; body: (tagTitle?: string|null)=>string; cta: string }> = {
+  InviteFriend: {
+    title: "Share the love 💌",
+    body: (t) => t ? `Invite a friend to try “${t}” on OmniNet.` : "Invite a friend to try this OmniTag on OmniNet.",
+    cta: "Share this tag",
+  },
+  SupportLocal: {
+    title: "Help it grow 🌱",
+    body: (t) => t ? `Share “${t}” — support local skills & services.` : "Share this tag — support local skills & services.",
+    cta: "Share to friends",
+  },
+  DiscoverMore: {
+    title: "Know someone who’d love this? ✨",
+    body: (t) => t ? `Pass “${t}” along — it might be perfect for them.` : "Pass this along — it might be perfect for them.",
+    cta: "Share with a friend",
+  },
+};
+
 export default function SuccessClient({
   sessionId,
   tagFromQS,
@@ -36,14 +56,28 @@ export default function SuccessClient({
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://omninethq.co.uk";
 
+  // Assign a sticky A/B variant per device
+  const [variant, setVariant] = useState<VariantKey>("InviteFriend");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "exp_success_share_variant";
+    const existing = window.localStorage.getItem(key) as VariantKey | null;
+    if (existing && VARIANTS[existing]) {
+      setVariant(existing);
+      return;
+    }
+    const keys: VariantKey[] = ["InviteFriend", "SupportLocal", "DiscoverMore"];
+    const pick = keys[Math.floor(Math.random() * keys.length)];
+    window.localStorage.setItem(key, pick);
+    setVariant(pick);
+  }, []);
+
   // Load Stripe session details (via our secure API route)
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const url = sessionId
-          ? `/api/success?session_id=${encodeURIComponent(sessionId)}`
-          : `/api/success`;
+        const url = sessionId ? `/api/success?session_id=${encodeURIComponent(sessionId)}` : `/api/success`;
         const res = await fetch(url, { cache: "no-store" });
         const data = (await res.json()) as SuccessInfo;
         if (!mounted) return;
@@ -55,12 +89,10 @@ export default function SuccessClient({
         if (mounted) setLoading(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [sessionId]);
 
-  // Fetch tag title (by id from metadata or query fallback)
+  // Fetch tag title
   useEffect(() => {
     (async () => {
       const id = (info?.tagId || tagFromQS || "").replace(/[<>\s]/g, "");
@@ -74,7 +106,7 @@ export default function SuccessClient({
     })();
   }, [info?.tagId, tagFromQS]);
 
-  // Resolve referrer display name from refCode → users.username (fallback to email prefix)
+  // Resolve referrer display name from refCode
   useEffect(() => {
     (async () => {
       const code = (info?.refCode || "").toLowerCase().trim();
@@ -98,10 +130,76 @@ export default function SuccessClient({
     return `£${(info.amount_cents / 100).toFixed(2)}`;
   }, [info?.amount_cents]);
 
+  const tagIdClean = useMemo(
+    () => (info?.tagId || tagFromQS || "").replace(/[<>\s]/g, ""),
+    [info?.tagId, tagFromQS]
+  );
+
   const tagUrl = useMemo(() => {
-    const id = (info?.tagId || tagFromQS || "").replace(/[<>\s]/g, "");
-    return id ? `${origin}/tag/${id}` : `${origin}/explore`;
-  }, [info?.tagId, tagFromQS, origin]);
+    return tagIdClean ? `${origin}/tag/${tagIdClean}` : `${origin}/explore`;
+  }, [tagIdClean, origin]);
+
+  // --- analytics helpers ---
+  const track = async (event_type: string, extra?: Record<string, any>) => {
+    try {
+      await fetch("/api/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type,
+          page: "/success",
+          variant,
+          tag_id: tagIdClean || null,
+          ref_code: (info?.refCode || null),
+          session_id: sessionId || null,
+          meta: extra || null,
+        }),
+      });
+    } catch {}
+  };
+
+  // impression fire once
+  useEffect(() => {
+    if (!loading) {
+      track("success_cta_impression");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, variant, tagIdClean]);
+
+  // --- Share CTA handlers ---
+  const handleShareTag = async () => {
+    await track("success_cta_click", { action: "share" });
+    try {
+      const title = tagTitle
+        ? `Check out "${tagTitle}" on OmniNet`
+        : "Check out this OmniTag on OmniNet";
+      if (typeof navigator !== "undefined" && "share" in navigator && (navigator as any).share) {
+        await (navigator as any).share({ title, url: tagUrl });
+        return;
+      }
+      await navigator.clipboard.writeText(tagUrl);
+      alert("🔗 Link copied to clipboard!");
+    } catch {
+      alert("Could not share right now.");
+    }
+  };
+
+  const handleCopyTagLink = async () => {
+    await track("success_cta_click", { action: "copy" });
+    try {
+      await navigator.clipboard.writeText(tagUrl);
+      alert("🔗 Link copied to clipboard!");
+    } catch {
+      alert("Could not copy link.");
+    }
+  };
+
+  const handlePrintQR = async () => {
+    await track("success_cta_click", { action: "print_qr" });
+    // navigation handled by Link
+  };
+
+  const v = VARIANTS[variant];
 
   return (
     <div className="p-8 max-w-2xl mx-auto text-center">
@@ -109,9 +207,7 @@ export default function SuccessClient({
 
       <h1 className="text-3xl font-bold mt-4 mb-2">Thank you! 🎉</h1>
 
-      {loading && (
-        <p className="text-gray-600">Confirming your payment…</p>
-      )}
+      {loading && <p className="text-gray-600">Confirming your payment…</p>}
 
       {!loading && info?.ok && (
         <>
@@ -135,17 +231,44 @@ export default function SuccessClient({
             </p>
           )}
 
+          {/* --- A/B: Share this tag --- */}
+          {tagIdClean && (
+            <div className="mt-6 border rounded-2xl p-4 bg-white shadow-sm">
+              <h3 className="font-semibold mb-1">{v.title}</h3>
+              <p className="text-sm text-gray-600">{v.body(tagTitle)}</p>
+              <p className="text-xs text-gray-400 break-all mt-1">{tagUrl}</p>
+
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={handleShareTag}
+                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  📣 {v.cta}
+                </button>
+                <button
+                  onClick={handleCopyTagLink}
+                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  🔗 Copy link
+                </button>
+                <Link
+                  href={`/tag/${tagIdClean}/print`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handlePrintQR}
+                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  🖨️ Print QR
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href={tagUrl}
-              className="border rounded-xl px-4 py-2 hover:bg-gray-50"
-            >
+            <Link href={tagUrl} className="border rounded-xl px-4 py-2 hover:bg-gray-50">
               View the tag
             </Link>
-            <Link
-              href="/explore"
-              className="border rounded-xl px-4 py-2 hover:bg-gray-50"
-            >
+            <Link href="/explore" className="border rounded-xl px-4 py-2 hover:bg-gray-50">
               Explore more
             </Link>
           </div>
