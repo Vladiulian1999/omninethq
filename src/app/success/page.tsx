@@ -1,8 +1,13 @@
-export default function SuccessPage() {
-  return (
-    <div className="p-10 text-center">
-      <h1 className="text-2xl font-bold text-green-600">✅ Payment Successful!</h1>
-      <p>Thank you for supporting this service tag.</p>
-    </div>
-  )
+import SuccessClient from "./_client";
+
+export const runtime = "nodejs";
+
+export default function Page({
+  searchParams,
+}: {
+  searchParams: { session_id?: string; tag?: string };
+}) {
+  const sessionId = searchParams?.session_id || "";
+  const tagFromQS = searchParams?.tag || ""; // optional fallback
+  return <SuccessClient sessionId={sessionId} tagFromQS={tagFromQS} />;
 }

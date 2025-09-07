@@ -1,16 +1,34 @@
-'use client'
+'use client';
 
-import { useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation';
 
-export function BackButton() {
-  const router = useRouter()
+export function BackButton({
+  fallback = '/explore',
+  className = 'inline-flex items-center gap-2 text-sm text-gray-600 hover:text-black',
+  children,
+}: {
+  fallback?: string;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const router = useRouter();
+
+  const handleBack = () => {
+    try {
+      if (typeof window !== 'undefined' && window.history.length > 1) {
+        router.back();
+      } else {
+        router.push(fallback);
+      }
+    } catch {
+      router.push(fallback);
+    }
+  };
 
   return (
-    <button
-      onClick={() => router.back()}
-      className="text-sm text-gray-600 hover:text-black px-3 py-1 border border-gray-300 rounded-md inline-flex items-center mb-4"
-    >
-      ← Back
+    <button onClick={handleBack} className={className} aria-label="Go back">
+      {children ?? <>← Back</>}
     </button>
-  )
+  );
 }
+
