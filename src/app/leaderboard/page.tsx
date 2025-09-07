@@ -1,10 +1,8 @@
-import { Suspense } from 'react'
-import LeaderboardClient from './_client'
+import LeaderboardClient from "./_client";
 
-export default function LeaderboardPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <LeaderboardClient />
-    </Suspense>
-  )
+export const runtime = "nodejs";
+
+export default function Page() {
+  return <LeaderboardClient />;
 }
+
