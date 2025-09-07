@@ -29,6 +29,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    console.log('[webhook] target supabase project:', projectUrl);
+
     if (event.type === 'checkout.session.completed') {
       const s = event.data.object as Stripe.Checkout.Session;
 
@@ -36,13 +39,20 @@ export async function POST(req: NextRequest) {
       const currency = (s.currency ?? 'gbp').toLowerCase();
       const stripeSessionId = s.id;
 
+      // Your short ids like "tag-2eb00" are acceptable — we made donations.tag_id TEXT
       const tagIdRaw = (s.metadata?.tagId ?? '').toString();
-      const tagId = tagIdRaw.replace(/[<>\s]/g, ''); // your short ids like "tag-2eb00"
+      const tagId = tagIdRaw.replace(/[<>\s]/g, ''); // sanitize
       const refCodeRaw = (s.metadata?.refCode ?? '').toString();
       const refCode = refCodeRaw.trim().toLowerCase() || null;
 
-      console.log('[webhook] env project', (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/https?:\/\//, ''));
-      console.log('[webhook] session', { id: stripeSessionId, amount, currency, tagIdRaw, tagId, refCode });
+      console.log('[webhook] session', {
+        id: stripeSessionId,
+        amount,
+        currency,
+        tagIdRaw,
+        tagId,
+        refCode,
+      });
 
       if (!tagId) {
         console.warn('[webhook] missing tagId; skipping insert');
@@ -50,6 +60,14 @@ export async function POST(req: NextRequest) {
       }
 
       const supabase = getServiceSupabase();
+
+      // quick connectivity probe (reads zero rows; returns ok if project/keys are right)
+      const probe = await supabase.from('donations').select('id', { count: 'exact', head: true });
+      if (probe.error) {
+        console.error('[webhook] probe error:', probe.error.message);
+      } else {
+        console.log('[webhook] probe ok, donations count now:', probe.count);
+      }
 
       let referrer_user_id: string | null = null;
       if (refCode) {
@@ -62,31 +80,29 @@ export async function POST(req: NextRequest) {
         referrer_user_id = refUser?.id ?? null;
       }
 
-      // Insert and SELECT back so we can see what happened
+      const insertPayload = {
+        tag_id: tagId,                // TEXT
+        amount_cents: amount,         // make sure column is named amount_cents (int)
+        currency,                     // TEXT
+        stripe_session_id: stripeSessionId, // TEXT UNIQUE
+        referral_code: refCode,       // TEXT nullable
+        referrer_user_id              // UUID nullable (ok to be null)
+      };
+      console.log('[webhook] inserting payload:', insertPayload);
+
       const { data: inserted, error: insertErr } = await supabase
         .from('donations')
-        .insert({
-          tag_id: tagId,               // TEXT
-          amount_cents: amount,
-          currency,
-          stripe_session_id: stripeSessionId,
-          referral_code: refCode,
-          referrer_user_id
-        })
+        .insert(insertPayload)
         .select()
         .maybeSingle();
 
       if (insertErr) {
-        const msg = String(insertErr.message || '');
-        if (!msg.includes('duplicate key')) {
-          console.error('[webhook] insert error:', msg);
-          throw insertErr;
-        } else {
-          console.log('[webhook] duplicate session id; safe to ignore');
-        }
-      } else {
-        console.log('[webhook] inserted row', inserted);
+        console.error('[webhook] insert error:', insertErr.message);
+        // Even on error, respond 200 so Stripe doesn’t hammer retries (we have logs)
+        return NextResponse.json({ received: true, note: 'insert error logged' }, { status: 200 });
       }
+
+      console.log('[webhook] inserted row:', inserted);
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
