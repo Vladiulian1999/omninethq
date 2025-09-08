@@ -1,215 +1,289 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import ShareButton from '@/components/ShareButton'
+import { Skeleton } from '@/components/Skeleton'
 import { BackButton } from '@/components/BackButton'
+
+/**
+ * If you have generated Supabase types, you can import them and
+ * replace the Tag + FeedbackRow types below with the real ones, e.g.:
+ *
+ * import type { Database } from '@/types/supabase'
+ * type MessageRow = Database['public']['Tables']['messages']['Row']
+ * type FeedbackRow = Database['public']['Tables']['feedback']['Row']
+ */
 
 type Tag = {
   id: string
   title: string
-  description: string
-  category?: string
+  description: string | null
+  category: string | null
+  views: number | null
+  featured: boolean | null
+  hidden?: boolean | null
+  created_at?: string | null
   average_rating?: number
-  featured?: boolean
-  hidden?: boolean
 }
 
-const categories = ['all', 'rent', 'help', 'sell', 'teach']
+type FeedbackRow = {
+  tag_id: string
+  rating: number
+  hidden?: boolean | null
+}
 
-const getCategoryBadge = (category: string) => {
-  const base = 'inline-block text-xs px-2 py-1 rounded-full font-medium'
-  switch (category) {
+const CATEGORIES = ['all', 'rent', 'sell', 'teach', 'help'] as const
+type SortKey = 'popular' | 'new' | 'featured'
+
+function CategoryPill({ category }: { category: string | null }) {
+  const base = 'px-2 py-1 rounded-full text-xs'
+  switch ((category || '').toLowerCase()) {
     case 'rent':
-      return `${base} bg-blue-100 text-blue-800`
+      return <span className={`${base} bg-blue-100 text-blue-800`}>rent</span>
     case 'sell':
-      return `${base} bg-green-100 text-green-800`
+      return <span className={`${base} bg-green-100 text-green-800`}>sell</span>
     case 'teach':
-      return `${base} bg-yellow-100 text-yellow-800`
+      return <span className={`${base} bg-yellow-100 text-yellow-800`}>teach</span>
     case 'help':
-      return `${base} bg-purple-100 text-purple-800`
+      return <span className={`${base} bg-purple-100 text-purple-800`}>help</span>
     default:
-      return `${base} bg-gray-100 text-gray-800`
+      return <span className={`${base} bg-gray-100 text-gray-700`}>{category || 'other'}</span>
   }
 }
 
-const getCategoryEmoji = (category?: string) => {
-  switch (category) {
-    case 'rent':
-      return '🪜'
-    case 'sell':
-      return '🛒'
-    case 'teach':
-      return '🎓'
-    case 'help':
-      return '🤝'
-    default:
-      return ''
-  }
+// Type guards to keep TS happy (avoid GenericStringError unions)
+function isTagArray(x: unknown): x is Tag[] {
+  return Array.isArray(x)
+}
+
+function isFeedbackArray(x: unknown): x is FeedbackRow[] {
+  return Array.isArray(x)
 }
 
 export default function ExploreClient() {
-  const [tags, setTags] = useState<Tag[]>([])
-  const [search, setSearch] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<Tag[]>([])
+  const [q, setQ] = useState('')
+  const [cat, setCat] = useState<(typeof CATEGORIES)[number]>('all')
+  const [sort, setSort] = useState<SortKey>('popular')
 
   useEffect(() => {
-    const fetchTags = async () => {
-      const { data: tagsData } = await supabase
+    ;(async () => {
+      setLoading(true)
+
+      // 1) Fetch visible messages
+      const { data: tagsData, error: tagsErr } = await supabase
         .from('messages')
-        .select('id, title, description, category, featured, hidden')
+        .select('id, title, description, category, views, featured, hidden, created_at')
         .eq('hidden', false)
-        .order('id', { ascending: false })
+        .limit(200)
 
-      const { data: feedback } = await supabase
-        .from('feedback')
-        .select('tag_id, rating')
-        .eq('hidden', false)
+      if (tagsErr) {
+        console.error('Error fetching tags:', tagsErr)
+        setRows([])
+        setLoading(false)
+        return
+      }
 
-      const tagRatings: Record<string, { sum: number; count: number }> = {}
+      const tagsList: Tag[] = isTagArray(tagsData)
+        ? tagsData
+        : (tagsData ?? []) as unknown as Tag[]
 
-      feedback?.forEach((f) => {
-        if (!tagRatings[f.tag_id]) {
-          tagRatings[f.tag_id] = { sum: 0, count: 0 }
+      const ids = tagsList.map((t) => t.id)
+
+      // 2) Fetch ratings
+      let ratingMap: Record<string, { sum: number; count: number }> = {}
+      if (ids.length) {
+        const { data: feedback, error: fbErr } = await supabase
+          .from('feedback')
+          .select('tag_id, rating, hidden')
+          .in('tag_id', ids)
+          .eq('hidden', false)
+
+        if (fbErr) {
+          console.error('Error fetching feedback:', fbErr)
+        } else {
+          const fbRows: FeedbackRow[] = isFeedbackArray(feedback)
+            ? feedback
+            : (feedback ?? []) as unknown as FeedbackRow[]
+
+          for (const f of fbRows) {
+            if (!ratingMap[f.tag_id]) ratingMap[f.tag_id] = { sum: 0, count: 0 }
+            ratingMap[f.tag_id].sum += Number(f.rating) || 0
+            ratingMap[f.tag_id].count += 1
+          }
         }
-        tagRatings[f.tag_id].sum += f.rating
-        tagRatings[f.tag_id].count += 1
+      }
+
+      // 3) Enrich with average_rating
+      const enriched: Tag[] = tagsList.map((t) => {
+        const r = ratingMap[t.id]
+        const avg = r && r.count > 0 ? r.sum / r.count : undefined
+        return { ...t, average_rating: avg }
       })
 
-      const enriched = (tagsData || []).map((tag) => {
-        const ratingData = tagRatings[tag.id]
-        return {
-          ...tag,
-          average_rating: ratingData ? ratingData.sum / ratingData.count : undefined,
-        }
-      })
-
-      setTags(enriched)
+      setRows(enriched)
       setLoading(false)
-    }
-
-    fetchTags()
+    })()
   }, [])
 
-  const trimmedSearch = search.trim().toLowerCase()
+  const filtered = useMemo<Tag[]>(() => {
+    let out: Tag[] = rows
 
-  const filteredTags = tags.filter((tag) => {
-    const matchesCategory =
-      selectedCategory === 'all' || tag.category === selectedCategory
+    // Category
+    if (cat !== 'all') {
+      const c = cat.toLowerCase()
+      out = out.filter((r) => (r.category || '').toLowerCase() === c)
+    }
 
-    const matchesSearch = trimmedSearch
-      ? trimmedSearch
-          .split(/\s+/)
-          .some((word) =>
-            tag.title.toLowerCase().includes(word) ||
-            tag.description.toLowerCase().includes(word) ||
-            tag.id.toLowerCase().includes(word)
-          )
-      : true
+    // Search
+    if (q.trim()) {
+      const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
+      out = out.filter((r) =>
+        terms.some(
+          (t) =>
+            (r.title || '').toLowerCase().includes(t) ||
+            (r.description || '').toLowerCase().includes(t) ||
+            r.id.toLowerCase().includes(t)
+        )
+      )
+    }
 
-    return matchesCategory && matchesSearch
-  })
+    // Sort
+    switch (sort) {
+      case 'featured':
+        out = out.slice().sort((a, b) => Number(b.featured) - Number(a.featured))
+        break
+      case 'new':
+        out = out.slice().sort((a, b) => {
+          const at = a.created_at ? new Date(a.created_at).getTime() : 0
+          const bt = b.created_at ? new Date(b.created_at).getTime() : 0
+          if (at !== bt) return bt - at
+          return b.id.localeCompare(a.id)
+        })
+        break
+      case 'popular':
+      default:
+        out = out.slice().sort((a, b) => (b.views || 0) - (a.views || 0))
+    }
 
-  const featuredTags = filteredTags.filter((tag) => tag.featured)
-  const regularTags = filteredTags.filter((tag) => !tag.featured)
+    return out
+  }, [rows, q, cat, sort])
+
+  const origin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk'
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <BackButton />
-
-      <h1 className="text-3xl font-bold mb-4 text-center">🔎 Explore OmniTags</h1>
-
-      <input
-        type="text"
-        placeholder="Search tags..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full border p-2 rounded mb-4"
-      />
-
-      <div className="flex gap-2 flex-wrap mb-6 justify-center">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={`px-3 py-1 rounded border text-sm transition ${
-              selectedCategory === cat
-                ? 'bg-black text-white'
-                : 'bg-white text-black border-gray-300'
-            }`}
-          >
-            {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
-          </button>
-        ))}
+    <div className="max-w-5xl mx-auto">
+      <div className="px-4 pt-4">
+        <BackButton />
       </div>
 
-      {loading ? (
-        <p className="text-center text-gray-500">Loading tags...</p>
-      ) : filteredTags.length === 0 ? (
-        <div className="text-center text-gray-500">
-          <p>No matching tags found.</p>
-          <p className="mt-2">
-            Want to create one?{' '}
-            <Link href="/new" className="text-blue-600 hover:underline">
-              Click here
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <>
-          {featuredTags.length > 0 && (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold mb-2">🌟 Featured Tags</h2>
-              <div className="grid gap-3">
-                {featuredTags.map((tag) => (
-                  <Link
-                    key={tag.id}
-                    href={`/tag/${tag.id}`}
-                    className="block border rounded p-4 hover:bg-yellow-50 transition shadow-sm"
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <h3 className="text-md font-semibold">
-                        {getCategoryEmoji(tag.category)} {tag.title}
-                      </h3>
-                      {tag.category && (
-                        <span className={getCategoryBadge(tag.category)}>
-                          {tag.category}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600">{tag.description}</p>
-                    <p className="text-xs text-yellow-600 mt-1">✨ Hand-picked by OmniNet</p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-4">
-            {regularTags.map((tag) => (
-              <Link
-                href={`/tag/${tag.id}`}
-                key={tag.id}
-                className="block border rounded p-4 hover:bg-gray-50 transition shadow-sm"
+      {/* Sticky filter bar (under the site header) */}
+      <div className="sticky top-14 z-30 bg-white/90 backdrop-blur border-b">
+        <div className="px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <input
+            className="min-w-[180px] flex-1 border rounded-xl px-3 py-2 text-sm"
+            placeholder="Search services…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="flex gap-1">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCat(c)}
+                className={`px-3 py-2 rounded-xl border text-sm ${
+                  cat === c ? 'bg-black text-white' : 'hover:bg-gray-50'
+                }`}
               >
-                <div className="flex justify-between items-center mb-1">
-                  <h2 className="text-lg font-semibold">
-                    {getCategoryEmoji(tag.category)} {tag.title}
-                  </h2>
-                  {tag.category && (
-                    <span className={getCategoryBadge(tag.category)}>
-                      {tag.category}
-                    </span>
-                  )}
-                </div>
-                <p className="text-gray-600 text-sm">{tag.description}</p>
-                <p className="text-xs text-gray-400 mt-1">ID: {tag.id}</p>
-              </Link>
+                {c}
+              </button>
             ))}
           </div>
-        </>
-      )}
+          <select
+            className="border rounded-xl px-3 py-2 text-sm"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            <option value="popular">Most scanned</option>
+            <option value="featured">Featured</option>
+            <option value="new">New</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+        {loading
+          ? Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="border rounded-2xl p-4 bg-white">
+                <Skeleton className="h-5 w-2/3 mb-2" />
+                <Skeleton className="h-4 w-5/6 mb-2" />
+                <Skeleton className="h-4 w-3/4 mb-4" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              </div>
+            ))
+          : filtered.length === 0
+          ? (
+            <div className="col-span-full text-center text-gray-500">
+              <p>No matching tags found.</p>
+              <p className="mt-2">
+                Want to create one?{' '}
+                <Link href="/new" className="text-blue-600 hover:underline">
+                  Click here
+                </Link>
+              </p>
+            </div>
+            )
+          : filtered.map((t) => (
+              <article key={t.id} className="border rounded-2xl p-4 bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-semibold text-lg">{t.title}</h3>
+                  {t.featured ? (
+                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
+                      Featured
+                    </span>
+                  ) : null}
+                </div>
+
+                {t.description && (
+                  <p className="text-sm text-gray-600 mt-1 line-clamp-3">
+                    {t.description}
+                  </p>
+                )}
+
+                <div className="mt-3 flex items-center gap-3 text-xs text-gray-500">
+                  <CategoryPill category={t.category} />
+                  {typeof t.views === 'number' && <span>👁 {t.views}</span>}
+                  {typeof t.average_rating === 'number' && (
+                    <span>⭐ {t.average_rating.toFixed(1)}</span>
+                  )}
+                  <span className="text-gray-400">ID: {t.id}</span>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2">
+                  <Link
+                    href={`/tag/${t.id}`}
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                  >
+                    Open
+                  </Link>
+                  <ShareButton
+                    url={`${origin}/tag/${t.id}`}
+                    title={`Check out "${t.title}" on OmniNet`}
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                  >
+                    📣 Share
+                  </ShareButton>
+                </div>
+              </article>
+            ))}
+      </div>
     </div>
   )
 }
