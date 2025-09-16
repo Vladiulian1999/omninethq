@@ -14,10 +14,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        {/* SVG favicon for modern browsers */}
+        {/* Critical for iOS safe area (Dynamic Island / notch) */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+        {/* SVG favicon */}
         <link rel="icon" href="/icon-omninet.svg" type="image/svg+xml" />
 
-        {/* iOS home screen icon (180x180) */}
+        {/* iOS home screen icon */}
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
 
         {/* Theme colors for light/dark */}

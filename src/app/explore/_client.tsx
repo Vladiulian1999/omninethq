@@ -7,15 +7,6 @@ import ShareButton from '@/components/ShareButton'
 import { Skeleton } from '@/components/Skeleton'
 import { BackButton } from '@/components/BackButton'
 
-/**
- * If you have generated Supabase types, you can import them and
- * replace the Tag + FeedbackRow types below with the real ones, e.g.:
- *
- * import type { Database } from '@/types/supabase'
- * type MessageRow = Database['public']['Tables']['messages']['Row']
- * type FeedbackRow = Database['public']['Tables']['feedback']['Row']
- */
-
 type Tag = {
   id: string
   title: string
@@ -53,11 +44,9 @@ function CategoryPill({ category }: { category: string | null }) {
   }
 }
 
-// Type guards to keep TS happy (avoid GenericStringError unions)
 function isTagArray(x: unknown): x is Tag[] {
   return Array.isArray(x)
 }
-
 function isFeedbackArray(x: unknown): x is FeedbackRow[] {
   return Array.isArray(x)
 }
@@ -73,7 +62,6 @@ export default function ExploreClient() {
     ;(async () => {
       setLoading(true)
 
-      // 1) Fetch visible messages
       const { data: tagsData, error: tagsErr } = await supabase
         .from('messages')
         .select('id, title, description, category, views, featured, hidden, created_at')
@@ -93,7 +81,6 @@ export default function ExploreClient() {
 
       const ids = tagsList.map((t) => t.id)
 
-      // 2) Fetch ratings
       let ratingMap: Record<string, { sum: number; count: number }> = {}
       if (ids.length) {
         const { data: feedback, error: fbErr } = await supabase
@@ -117,7 +104,6 @@ export default function ExploreClient() {
         }
       }
 
-      // 3) Enrich with average_rating
       const enriched: Tag[] = tagsList.map((t) => {
         const r = ratingMap[t.id]
         const avg = r && r.count > 0 ? r.sum / r.count : undefined
@@ -132,13 +118,11 @@ export default function ExploreClient() {
   const filtered = useMemo<Tag[]>(() => {
     let out: Tag[] = rows
 
-    // Category
     if (cat !== 'all') {
       const c = cat.toLowerCase()
       out = out.filter((r) => (r.category || '').toLowerCase() === c)
     }
 
-    // Search
     if (q.trim()) {
       const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
       out = out.filter((r) =>
@@ -151,7 +135,6 @@ export default function ExploreClient() {
       )
     }
 
-    // Sort
     switch (sort) {
       case 'featured':
         out = out.slice().sort((a, b) => Number(b.featured) - Number(a.featured))
@@ -181,8 +164,11 @@ export default function ExploreClient() {
         <BackButton />
       </div>
 
-      {/* Sticky filter bar (under the site header) */}
-      <div className="sticky top-14 z-30 bg-white/90 backdrop-blur border-b">
+      {/* Sticky filter bar positioned right under the header (safe-area aware) */}
+      <div
+        className="sticky z-30 bg-white/90 backdrop-blur border-b"
+        style={{ top: 'var(--header-h)' }}
+      >
         <div className="px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
           <input
             className="min-w-[180px] flex-1 border rounded-xl px-3 py-2 text-sm"
@@ -228,61 +214,61 @@ export default function ExploreClient() {
                 </div>
               </div>
             ))
-          : filtered.length === 0
-          ? (
-            <div className="col-span-full text-center text-gray-500">
-              <p>No matching tags found.</p>
-              <p className="mt-2">
-                Want to create one?{' '}
-                <Link href="/new" className="text-blue-600 hover:underline">
-                  Click here
-                </Link>
-              </p>
-            </div>
-            )
-          : filtered.map((t) => (
-              <article key={t.id} className="border rounded-2xl p-4 bg-white">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-semibold text-lg">{t.title}</h3>
-                  {t.featured ? (
-                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
-                      Featured
-                    </span>
-                  ) : null}
-                </div>
-
-                {t.description && (
-                  <p className="text-sm text-gray-600 mt-1 line-clamp-3">
-                    {t.description}
-                  </p>
-                )}
-
-                <div className="mt-3 flex items-center gap-3 text-xs text-gray-500">
-                  <CategoryPill category={t.category} />
-                  {typeof t.views === 'number' && <span>👁 {t.views}</span>}
-                  {typeof t.average_rating === 'number' && (
-                    <span>⭐ {t.average_rating.toFixed(1)}</span>
-                  )}
-                  <span className="text-gray-400">ID: {t.id}</span>
-                </div>
-
-                <div className="mt-4 flex items-center gap-2">
-                  <Link
-                    href={`/tag/${t.id}`}
-                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-                  >
-                    Open
+          : filtered.length === 0 ? (
+              <div className="col-span-full text-center text-gray-500">
+                <p>No matching tags found.</p>
+                <p className="mt-2">
+                  Want to create one?{' '}
+                  <Link href="/new" className="text-blue-600 hover:underline">
+                    Click here
                   </Link>
-                  <ShareButton
-                    url={`${origin}/tag/${t.id}`}
-                    title={`Check out "${t.title}" on OmniNet`}
-                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-                  >
-                    📣 Share
-                  </ShareButton>
-                </div>
-              </article>
-            ))}
+                </p>
+              </div>
+            ) : (
+              filtered.map((t) => (
+                <article key={t.id} className="border rounded-2xl p-4 bg-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="font-semibold text-lg">{t.title}</h3>
+                    {t.featured ? (
+                      <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
+                        Featured
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {t.description && (
+                    <p className="text-sm text-gray-600 mt-1 line-clamp-3">
+                      {t.description}
+                    </p>
+                  )}
+
+                  <div className="mt-3 flex items-center gap-3 text-xs text-gray-500">
+                    <CategoryPill category={t.category} />
+                    {typeof t.views === 'number' && <span>👁 {t.views}</span>}
+                    {typeof t.average_rating === 'number' && (
+                      <span>⭐ {t.average_rating.toFixed(1)}</span>
+                    )}
+                    <span className="text-gray-400">ID: {t.id}</span>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <Link
+                      href={`/tag/${t.id}`}
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                    >
+                      Open
+                    </Link>
+                    <ShareButton
+                      url={`${origin}/tag/${t.id}`}
+                      title={`Check out "${t.title}" on OmniNet`}
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                    >
+                      📣 Share
+                    </ShareButton>
+                  </div>
+                </article>
+              ))
+            )}
       </div>
     </div>
   )
