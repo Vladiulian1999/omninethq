@@ -1,68 +1,35 @@
 'use client'
-
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function NavAuth() {
-  const [userId, setUserId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [signedIn, setSignedIn] = useState<boolean | null>(null)
 
   useEffect(() => {
-    let mounted = true
-    const load = async () => {
-      const { data } = await supabase.auth.getUser()
-      if (mounted) {
-        setUserId(data?.user?.id ?? null)
-        setLoading(false)
-      }
-    }
-    load()
-    return () => {
-      mounted = false
-    }
+    supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSignedIn(!!session)
+    })
+    return () => sub.subscription.unsubscribe()
   }, [])
 
-  if (loading) return null
+  if (signedIn === null) return null
 
   return (
     <div className="flex items-center gap-2">
-      {/* Create is always visible; /new already protects/redirects */}
-      <Link
-        href="/new"
-        className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-800"
-      >
-        Create
-      </Link>
-
-      {userId ? (
+      {signedIn ? (
         <>
-          <Link
-            href="/my"
-            className="px-3 py-1.5 rounded bg-gray-900 text-white text-sm hover:bg-black"
-          >
-            My
-          </Link>
-          <Link
-            href={`/u/${userId}`}
-            className="px-3 py-1.5 rounded bg-gray-200 text-sm hover:bg-gray-300"
-          >
-            Profile
-          </Link>
-          <Link
-            href="/logout"
-            className="px-3 py-1.5 rounded bg-gray-200 text-sm hover:bg-gray-300"
+          <Link href="/profile" className="px-3 py-1.5 rounded-xl border">Profile</Link>
+          <button
+            className="px-3 py-1.5 rounded-xl border"
+            onClick={async () => { await supabase.auth.signOut(); location.href='/' }}
           >
             Logout
-          </Link>
+          </button>
         </>
       ) : (
-        <Link
-          href="/login"
-          className="px-3 py-1.5 rounded bg-gray-200 text-sm hover:bg-gray-300"
-        >
-          Login
-        </Link>
+        <Link href="/login" className="px-3 py-1.5 rounded-xl border">Login</Link>
       )}
     </div>
   )

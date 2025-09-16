@@ -1,37 +1,36 @@
-'use client';
+'use client'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import NavAuth from './NavAuth'
 
-import Link from 'next/link';
+const Tab = ({ href, children }: { href: string; children: React.ReactNode }) => {
+  const pathname = usePathname()
+  const active = pathname === href || pathname.startsWith(href + '/')
+  return (
+    <Link
+      href={href}
+      className={`px-3 py-1.5 rounded-xl border ${active ? 'bg-black text-white' : 'bg-white'}`}
+    >
+      {children}
+    </Link>
+  )
+}
 
 export default function StickyHeader() {
   return (
-    <header className="sticky top-0 z-40 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b">
-      <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/" className="shrink-0 inline-flex items-center gap-2">
-          {/* Logo mark (simple) */}
-          <span className="inline-block w-6 h-6 rounded-lg bg-black" aria-hidden />
-          <span className="font-semibold">OmniNet</span>
-        </Link>
+    <header className="sticky top-0 z-40 border-b bg-white/90 backdrop-blur">
+      <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img src="/icon-omninet.svg" alt="OmniNet" className="w-6 h-6 rounded-lg" />
+          <a href="/" className="font-semibold">OmniNet</a>
+        </div>
         <nav className="flex items-center gap-2">
-          <Link
-            href="/explore"
-            className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-          >
-            Explore
-          </Link>
-          <Link
-            href="/new"
-            className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-          >
-            Create
-          </Link>
-          <Link
-            href="/my"
-            className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-          >
-            My
-          </Link>
+          <Tab href="/explore">Explore</Tab>
+          <Tab href="/new">Create</Tab>
+          <Tab href="/my">My</Tab>
         </nav>
+        <NavAuth />
       </div>
     </header>
-  );
+  )
 }
