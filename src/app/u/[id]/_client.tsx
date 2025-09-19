@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { QRCodeCanvas } from 'qrcode.react'
 import { saveAs } from 'file-saver'
+import AvatarImage from '@/components/AvatarImage'
 
 export default function UserProfileClient({ userId }: { userId: string }) {
   const [profile, setProfile] = useState({ username: '', bio: '', avatar_url: '' })
@@ -25,8 +26,8 @@ export default function UserProfileClient({ userId }: { userId: string }) {
         .single()
       if (error) {
         toast.error('Error loading profile')
-      } else {
-        setProfile(data)
+      } else if (data) {
+        setProfile(data as typeof profile)
       }
       setLoading(false)
     }
@@ -105,7 +106,28 @@ export default function UserProfileClient({ userId }: { userId: string }) {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Your Profile</h1>
 
-      <div className="space-y-2">
+      <div className="space-y-4">
+        {/* Avatar preview (supports full URL or storage path) */}
+        <div className="flex items-center gap-4">
+          <AvatarImage
+            src={profile.avatar_url || null}
+            bucket="avatars" // change if your storage bucket is named differently
+            alt={`${profile.username || 'User'} avatar`}
+            size={112}
+          />
+          <div className="text-sm text-gray-600">
+            Paste a full image URL or a Supabase Storage path (e.g. <code>user-123/avatar.png</code>).
+          </div>
+        </div>
+
+        <label className="block text-sm font-medium">Avatar URL or Storage Path</label>
+        <input
+          value={profile.avatar_url}
+          onChange={(e) => setProfile({ ...profile, avatar_url: e.target.value })}
+          className="w-full p-2 border rounded"
+          placeholder="https://... or user-123/avatar.png"
+        />
+
         <label className="block text-sm font-medium">Username</label>
         <input
           value={profile.username}
@@ -120,24 +142,9 @@ export default function UserProfileClient({ userId }: { userId: string }) {
           className="w-full p-2 border rounded"
         />
 
-        <label className="block text-sm font-medium">Avatar URL</label>
-        <input
-          value={profile.avatar_url}
-          onChange={(e) => setProfile({ ...profile, avatar_url: e.target.value })}
-          className="w-full p-2 border rounded"
-        />
-
-        {profile.avatar_url && (
-          <img
-            src={profile.avatar_url}
-            alt="Avatar"
-            className="w-24 h-24 rounded-full mt-2 border"
-          />
-        )}
-
         <button
           onClick={updateProfile}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
+          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
         >
           Save Changes
         </button>
