@@ -1,428 +1,194 @@
 'use client'
 
-import { useEffect, useRef, useState, useMemo } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import QRCode from 'react-qr-code'
-import { toPng } from 'html-to-image'
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
-import ScanAnalytics from '@/components/ScanAnalytics'
+import toast from 'react-hot-toast'
+import OwnerBookingToggle from '@/components/OwnerBookingToggle'
+import BookingRequestForm from '@/components/BookingRequestForm'
+import ShareButton from '@/components/ShareButton'
 import { BackButton } from '@/components/BackButton'
-import toast, { Toaster } from 'react-hot-toast'
+import { Skeleton } from '@/components/Skeleton'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-type FeedbackEntry = {
+type TagRow = {
   id: string
-  tag_id: string
-  name: string
-  message: string
-  rating: number
-  created_at: string
-  hidden?: boolean
+  user_id: string
+  title: string
+  description: string | null
+  category: string | null
+  views: number | null
+  featured: boolean | null
+  bookings_enabled: boolean | null
+  created_at?: string | null
 }
 
-type Props = {
-  tagId: string
-  scanChartData: { date: string; count: number }[]
-}
+export default function TagClient({ tagId }: { tagId: string }) {
+  const [tag, setTag] = useState<TagRow | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [me, setMe] = useState<string | null>(null)
 
-/** A2HS prompt nudge (inlined) */
-function A2HSNudge() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
-  const [show, setShow] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (localStorage.getItem('a2hs_seen')) return
-
-    const handler = (e: any) => {
-      e.preventDefault()
-      setDeferredPrompt(e)
-      setShow(true)
-    }
-
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [])
-
-  const install = async () => {
-    if (!deferredPrompt) return
-    deferredPrompt.prompt()
-    await deferredPrompt.userChoice
-    localStorage.setItem('a2hs_seen', '1')
-    setShow(false)
-  }
-
-  if (!show) return null
-
-  return (
-    <div className="fixed bottom-4 inset-x-4 z-50 bg-white border shadow-lg rounded-2xl p-4 flex items-center justify-between">
-      <span className="text-sm">Add OmniNet to your home screen for 1-tap access.</span>
-      <div className="flex gap-2">
-        <button className="px-3 py-1 border rounded-xl" onClick={() => setShow(false)}>
-          Not now
-        </button>
-        <button className="px-3 py-1 border rounded-xl" onClick={install}>
-          Add
-        </button>
-      </div>
-    </div>
-  )
-}
-
-export default function TagClient({ tagId, scanChartData }: Props) {
-  // Clean id to avoid issues like "<id>" or spaces from copy/paste
-  const cleanId = useMemo(() => tagId.replace(/[<>\s]/g, ''), [tagId])
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk'
 
-  const [data, setData] = useState<any>(null)
-  const [feedback, setFeedback] = useState<FeedbackEntry[]>([])
-  const [name, setName] = useState('')
-  const [message, setMessage] = useState('')
-  const [rating, setRating] = useState<number | ''>('')
-  const [error, setError] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [scanCount, setScanCount] = useState<number>(0)
-  const qrRef = useRef<HTMLDivElement>(null)
-
+  // who am I?
   useEffect(() => {
-    const fetchTag = async () => {
+    supabase.auth.getUser().then(({ data }) => setMe(data.user?.id ?? null))
+  }, [])
+
+  // load the tag (must include user_id + bookings_enabled)
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      setLoading(true)
+      setErr(null)
       const { data, error } = await supabase
         .from('messages')
-        .select('title, description, category, views, featured, user_id')
-        .eq('id', cleanId)
-        .single()
+        .select(
+          'id, user_id, title, description, category, views, featured, bookings_enabled, created_at'
+        )
+        .eq('id', tagId)
+        .maybeSingle()
 
-      if (error) {
-        setError(error.message)
-      } else {
-        setData(data)
-        await supabase.rpc('increment_views', { row_id: cleanId })
-      }
-    }
-
-    const fetchFeedback = async () => {
-      const { data } = await supabase
-        .from('feedback')
-        .select('*')
-        .eq('tag_id', cleanId)
-        .eq('hidden', false)
-        .order('created_at', { ascending: false })
-      setFeedback(data || [])
-    }
-
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser()
-      setUserId(data?.user?.id || null)
-    }
-
-    const logScan = async () => {
-      await supabase
-        .from('scans')
-        .insert([{ tag_id: cleanId, created_at: new Date().toISOString() }])
-      const { count } = await supabase
-        .from('scans')
-        .select('*', { count: 'exact', head: true })
-        .eq('tag_id', cleanId)
-      setScanCount(count || 0)
-    }
-
-    fetchTag()
-    fetchFeedback()
-    getUser()
-    logScan()
-  }, [cleanId])
-
-  const isOwner = userId && data?.user_id && userId === data.user_id
-
-  // Referral-aware Stripe checkout
-  async function startCheckout(id: string, amountCents = 500) {
-    try {
-      const refCode =
-        (typeof window !== 'undefined' && localStorage.getItem('referral_code')) || ''
-
-      const res = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents }),
-      })
-
-      const { url, error } = await res.json()
+      if (!active) return
       if (error) {
         console.error(error)
-        toast.error('❌ Failed to create Stripe session')
-        return
-      }
-      if (url) {
-        window.location.href = url
+        setErr('Could not load tag')
+        setTag(null)
+      } else if (!data) {
+        setErr('Tag not found')
+        setTag(null)
       } else {
-        toast.error('❌ No checkout URL returned')
+        setTag(data as TagRow)
       }
-    } catch (e) {
-      console.error(e)
-      toast.error('❌ Could not start checkout')
+      setLoading(false)
+    })()
+
+    return () => {
+      active = false
     }
-  }
+  }, [tagId])
 
-  const handleDownload = async () => {
-    if (!qrRef.current) return
-    const dataUrl = await toPng(qrRef.current)
-    const link = document.createElement('a')
-    link.download = `${cleanId}-qr.png`
-    link.href = dataUrl
-    link.click()
-    toast.success('📥 QR code downloaded!')
-  }
+  const shareUrl = useMemo(() => `${origin}/tag/${tagId}`, [origin, tagId])
 
-  const handleCopyLink = () => {
-    const url = `${origin}/tag/${cleanId}`
-    navigator.clipboard.writeText(url)
-    toast.success('🔗 Link copied to clipboard!')
-  }
-
-  // Share handler (Web Share API + clipboard fallback)
-  const handleShare = async () => {
-    try {
-      const title = typeof document !== 'undefined' ? document.title : 'OmniNet Tag'
-      const url =
-        typeof window !== 'undefined'
-          ? window.location.href
-          : `${origin}/tag/${cleanId}`
-      const shareData = { title, url }
-
-      if (typeof navigator !== 'undefined' && 'share' in navigator && (navigator as any).share) {
-        try {
-          await (navigator as any).share(shareData)
-          return
-        } catch {
-          return // user canceled
-        }
-      }
-
-      await navigator.clipboard.writeText(shareData.url)
-      toast.success('🔗 Link copied to clipboard!')
-    } catch {
-      toast.error('❌ Could not share right now')
-    }
-  }
-
-  const handleSubmitFeedback = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (rating === '' || Number.isNaN(rating)) {
-      toast.error('Please select a rating.')
+  // DEBUG helper for owners: force enable if somehow toggle didn’t show
+  async function debugForceEnable() {
+    if (!tag) return
+    if (!me || me !== tag.user_id) {
+      toast.error('Only the owner can change this setting')
       return
     }
-    const { error } = await supabase.from('feedback').insert([{
-      tag_id: cleanId,
-      name: name || 'Anonymous',
-      message,
-      rating,
-    }])
-    if (!error) {
-      setName('')
-      setMessage('')
-      setRating('')
-      const { data } = await supabase
-        .from('feedback')
-        .select('*')
-        .eq('tag_id', cleanId)
-        .eq('hidden', false)
-        .order('created_at', { ascending: false })
-      setFeedback(data || [])
-      toast.success('✅ Feedback submitted!')
-    } else {
-      toast.error('❌ Failed to submit feedback')
-    }
-  }
-
-  const handleDeleteFeedback = async (id: string) => {
-    if (!confirm('Are you sure you want to hide this comment?')) return
     const { error } = await supabase
-      .from('feedback')
-      .update({ hidden: true })
-      .eq('id', id)
-    if (!error) {
-      setFeedback((prev) => prev.filter((f) => f.id !== id))
-      toast.success('🗑 Feedback hidden')
+      .from('messages')
+      .update({ bookings_enabled: true })
+      .eq('id', tag.id)
+    if (error) {
+      console.error(error)
+      toast.error('Failed to enable bookings')
     } else {
-      toast.error('❌ Failed to hide feedback')
+      toast.success('Bookings enabled (debug)')
+      setTag({ ...tag, bookings_enabled: true })
     }
   }
 
-  const getCategoryBadge = (category: string) => {
-    const base = 'inline-block px-3 py-1 rounded-full text-xs font-medium'
-    switch (category) {
-      case 'rent': return `${base} bg-blue-100 text-blue-800`
-      case 'sell': return `${base} bg-green-100 text-green-800`
-      case 'teach': return `${base} bg-yellow-100 text-yellow-800`
-      case 'help': return `${base} bg-purple-100 text-purple-800`
-      default: return `${base} bg-gray-100 text-gray-800`
-    }
-  }
-
-  const getCategoryEmoji = (category: string) => {
-    switch (category) {
-      case 'rent': return '🪜'
-      case 'sell': return '🛒'
-      case 'teach': return '🎓'
-      case 'help': return '🤝'
-      default: return ''
-    }
-  }
-
-  const averageRating = feedback.length
-    ? (feedback.reduce((sum, f) => sum + (f.rating || 0), 0) / feedback.length).toFixed(1)
-    : null
-
-  if (error || !data) {
+  if (loading) {
     return (
-      <div className="p-10 text-center text-red-600">
-        <h1 className="text-2xl font-bold">Tag Not Found</h1>
-        <p>ID: {cleanId}</p>
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="mb-3">
+          <BackButton />
+        </div>
+        <div className="border rounded-2xl p-4 bg-white">
+          <Skeleton className="h-6 w-1/2 mb-3" />
+          <Skeleton className="h-4 w-5/6 mb-2" />
+          <Skeleton className="h-4 w-4/6 mb-6" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-28" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (err || !tag) {
+    return (
+      <div className="max-w-3xl mx-auto p-4 space-y-3">
+        <BackButton />
+        <div className="p-4 border rounded-2xl bg-white">
+          <p className="text-sm text-red-600">{err ?? 'Tag not found'}</p>
+          <p className="mt-2 text-sm">
+            Go back to{' '}
+            <Link href="/explore" className="text-blue-600 underline">
+              Explore
+            </Link>
+            .
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="p-10 text-center">
-      <Toaster position="top-center" />
-      <A2HSNudge />
-      <BackButton />
+    <div className="max-w-3xl mx-auto p-4 space-y-6">
+      {/* top actions */}
+      <div className="flex items-center justify-between gap-3">
+        <BackButton />
+        <ShareButton
+          url={shareUrl}
+          title={`Check out "${tag.title}" on OmniNet`}
+          className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+        >
+          📣 Share
+        </ShareButton>
+      </div>
 
-      <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
-      {data.featured && (
-        <p className="text-sm text-yellow-600 mb-2">✨ Featured by OmniNet</p>
-      )}
-      <p className="text-gray-600 mb-2">{data.description}</p>
-
-      <Link href={`/category/${data.category}`}>
-        <span className={getCategoryBadge(data.category)}>
-          {getCategoryEmoji(data.category)} {data.category}
-        </span>
-      </Link>
-
-      <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
-      <p className="text-xs text-gray-500 mb-1">🔢 {scanCount} scans</p>
-
-      {typeof data.views === 'number' && (
-        <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>
-      )}
-
-      <div className="flex flex-col items-center gap-3 mb-8">
-        <div ref={qrRef} className="bg-white p-3 rounded shadow">
-          <QRCode value={`${origin}/tag/${cleanId}`} size={160} level="H" />
+      {/* header + owner toggle */}
+      <div className="border rounded-2xl p-4 bg-white space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold">{tag.title}</h1>
+          <OwnerBookingToggle
+            tagId={tag.id}
+            tagOwnerId={tag.user_id}
+            initialEnabled={!!tag.bookings_enabled}
+          />
         </div>
 
-        <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
+        {tag.description ? (
+          <p className="text-sm text-gray-700">{tag.description}</p>
+        ) : null}
 
-        <div className="flex flex-wrap justify-center gap-3 mt-2">
-          <button
-            onClick={handleDownload}
-            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
-          >
-            📥 Download QR
-          </button>
-
-          <button
-            onClick={handleCopyLink}
-            className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
-          >
-            🔗 Copy Link
-          </button>
-
-          <button
-            onClick={handleShare}
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            📣 Share
-          </button>
-
-          {/* 🖨️ Print QR (opens dedicated print page using the REAL tagId) */}
-          <Link
-            href={`/tag/${cleanId}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            🖨️ Print QR
-          </Link>
-
-          <button
-            onClick={() => startCheckout(cleanId, 500)} // £5.00 default (500 pence)
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
-          >
-            💸 Support this Tag
-          </button>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          {tag.category ? (
+            <span className="px-2 py-1 rounded-full bg-gray-100">{tag.category}</span>
+          ) : null}
+          {typeof tag.views === 'number' ? <span>👁 {tag.views}</span> : null}
+          {tag.featured ? (
+            <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">Featured</span>
+          ) : null}
+          <span className="text-gray-400">ID: {tag.id}</span>
         </div>
       </div>
 
-      <ScanAnalytics data={scanChartData} />
+      {/* tiny debug panel (temporary) */}
+      <div className="p-3 border rounded-xl bg-white/70 text-xs text-gray-600">
+        <div>DEBUG — me: <code>{me ?? 'anon'}</code></div>
+        <div>owner: <code>{tag.user_id}</code></div>
+        <div>bookings_enabled: <code>{String(!!tag.bookings_enabled)}</code></div>
+        {me && me === tag.user_id && !tag.bookings_enabled ? (
+          <button
+            onClick={debugForceEnable}
+            className="mt-2 px-2 py-1 rounded border"
+          >
+            Force enable (owner)
+          </button>
+        ) : null}
+      </div>
 
-      <hr className="my-8 border-gray-300" />
-
-      <h2 className="text-xl font-semibold mb-4">💬 Feedback</h2>
-
-      {averageRating && (
-        <p className="text-sm text-yellow-600 mb-2">
-          ⭐ Average Rating: {averageRating} ({feedback.length} reviews)
-        </p>
-      )}
-
-      <ul className="space-y-4 mb-6 max-w-lg mx-auto text-left">
-        {feedback.map((f) => (
-          <li key={f.id} className="border p-3 rounded bg-white shadow">
-            <div className="flex justify-between items-center mb-1">
-              <p className="text-sm text-gray-700">⭐ {f.rating} by {f.name}</p>
-              {isOwner && (
-                <button
-                  onClick={() => handleDeleteFeedback(f.id)}
-                  className="text-xs text-red-600 hover:underline"
-                >
-                  🗑 Hide
-                </button>
-              )}
-            </div>
-            <p className="text-sm text-gray-800">{f.message}</p>
-          </li>
-        ))}
-      </ul>
-
-      <form onSubmit={handleSubmitFeedback} className="space-y-3 text-left max-w-md mx-auto">
-        <input
-          className="w-full border p-2 rounded"
-          placeholder="Your name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <textarea
-          className="w-full border p-2 rounded"
-          placeholder="Your comment..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          required
-        />
-        <select
-          className="w-full border p-2 rounded"
-          value={rating}
-          onChange={(e) => {
-            const v = e.target.value
-            setRating(v === '' ? '' : parseInt(v, 10))
-          }}
-          required
-        >
-          <option value="">Rate this tag</option>
-          {[1, 2, 3, 4, 5].map((r) => (
-            <option key={r} value={r}>{r} ⭐</option>
-          ))}
-        </select>
-        <button type="submit" className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800">
-          Submit Feedback
-        </button>
-      </form>
+      {/* booking section */}
+      <section className="mt-2">
+        <h2 className="text-lg font-semibold mb-2">Booking</h2>
+        <BookingRequestForm tagId={tag.id} enabled={!!tag.bookings_enabled} />
+      </section>
     </div>
   )
 }
