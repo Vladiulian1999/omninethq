@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
+import Link from 'next/link'
 
 type Props = {
   tagId: string
@@ -16,12 +17,33 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
   const [preferredAt, setPreferredAt] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+
+  const nextPath =
+    typeof window !== 'undefined' ? window.location.pathname : `/tag/${tagId}`
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data?.user?.id ?? null)
+    })
+  }, [])
 
   if (!enabled) {
     return (
       <p className="text-sm text-gray-500">
         The owner is not currently accepting bookings.
       </p>
+    )
+  }
+
+  // RLS requires authenticated; show a friendly login CTA
+  if (!userId) {
+    return (
+      <div className="p-4 border rounded-2xl bg-white">
+        <p className="text-sm text-gray-700">
+          Please <Link className="text-blue-600 underline" href={`/login?next=${encodeURIComponent(nextPath)}`}>log in</Link> to request a booking.
+        </p>
+      </div>
     )
   }
 
@@ -34,26 +56,22 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
 
     setLoading(true)
     try {
-      const { data, error } = await supabase.from('bookings').insert([
+      // requester_id is set by DB trigger; do NOT send it here
+      const { error } = await supabase.from('bookings').insert([
         {
           tag_id: tagId,
-          requester_name: name,
-          requester_email: email,
-          requester_phone: phone || null,
-          preferred_at: preferredAt,
-          message: message || null,
+          requester_name: name.trim(),
+          requester_email: email.trim(),
+          requester_phone: phone.trim() || null,
+          preferred_at: new Date(preferredAt).toISOString(),
+          message: message.trim() || null,
           status: 'pending',
         },
       ])
 
       if (error) throw error
       toast.success('Booking request sent!')
-      // Reset form
-      setName('')
-      setEmail('')
-      setPhone('')
-      setPreferredAt('')
-      setMessage('')
+      setName(''); setEmail(''); setPhone(''); setPreferredAt(''); setMessage('')
     } catch (err) {
       console.error(err)
       toast.error('Failed to submit booking')
@@ -63,51 +81,50 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
   }
 
   return (
-    <form
-      onSubmit={submitBooking}
-      className="space-y-3 p-4 border rounded-2xl bg-white shadow"
-    >
-      <div>
-        <label className="block text-sm font-medium">Your Name *</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2 border rounded"
-          required
-        />
+    <form onSubmit={submitBooking} className="space-y-3 p-4 border rounded-2xl bg-white shadow">
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium">Your Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 border rounded"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Email *</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full px-3 py-2 border rounded"
+            required
+          />
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium">Email *</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full px-3 py-2 border rounded"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium">Phone</label>
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="w-full px-3 py-2 border rounded"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium">Preferred Date/Time *</label>
-        <input
-          type="datetime-local"
-          value={preferredAt}
-          onChange={(e) => setPreferredAt(e.target.value)}
-          className="w-full px-3 py-2 border rounded"
-          required
-        />
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium">Phone</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full px-3 py-2 border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Preferred Date/Time *</label>
+          <input
+            type="datetime-local"
+            value={preferredAt}
+            onChange={(e) => setPreferredAt(e.target.value)}
+            className="w-full px-3 py-2 border rounded"
+            required
+          />
+        </div>
       </div>
 
       <div>
