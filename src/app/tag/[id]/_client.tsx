@@ -5,11 +5,13 @@ import { createClient } from '@supabase/supabase-js'
 import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ScanAnalytics from '@/components/ScanAnalytics'
 import { BackButton } from '@/components/BackButton'
 import toast, { Toaster } from 'react-hot-toast'
 import OwnerBookingToggle from '@/components/OwnerBookingToggle'
 import BookingRequestForm from '@/components/BookingRequestForm'
+import BookingRequestsList from '@/components/BookingRequestsList'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,6 +93,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const [scanCount, setScanCount] = useState<number>(0)
   const qrRef = useRef<HTMLDivElement>(null)
 
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   useEffect(() => {
     const fetchTag = async () => {
       const { data, error } = await supabase
@@ -140,6 +145,42 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }, [cleanId])
 
   const isOwner = userId && data?.user_id && userId === data.user_id
+
+  // Handle one-click email actions (?action=accept|decline&booking=<id>) for owners
+  useEffect(() => {
+    const action = searchParams?.get('action')
+    const bookingId = searchParams?.get('booking')
+    if (!action || !bookingId || !data || !userId) return
+
+    if (userId !== data.user_id) {
+      toast.error('You must be the tag owner to perform this action.')
+      router.replace(`/tag/${cleanId}`)
+      return
+    }
+
+    (async () => {
+      try {
+        if (action !== 'accept' && action !== 'decline') {
+          toast.error('Unknown action.')
+          return
+        }
+        const { error } = await supabase
+          .from('bookings')
+          .update({ status: action === 'accept' ? 'accepted' : 'declined' })
+          .eq('id', bookingId)
+          .eq('tag_id', cleanId)
+
+        if (error) throw error
+        toast.success(action === 'accept' ? '✅ Booking accepted' : '❌ Booking declined')
+      } catch (e) {
+        console.error(e)
+        toast.error('Failed to process booking action.')
+      } finally {
+        router.replace(`/tag/${cleanId}`)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, data, userId, cleanId])
 
   // Stripe checkout
   async function startCheckout(id: string, amountCents = 500) {
@@ -378,6 +419,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       <hr className="my-8 border-gray-300" />
       <h2 className="text-xl font-semibold mb-4">📅 Booking</h2>
       <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
+
+      {/* Owner’s list of requests */}
+      {isOwner && (
+        <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />
+      )}
 
       {/* Feedback Section */}
       <hr className="my-8 border-gray-300" />

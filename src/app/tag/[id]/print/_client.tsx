@@ -9,7 +9,7 @@ import BookingRequestForm from '@/components/BookingRequestForm'
 import ShareButton from '@/components/ShareButton'
 import { BackButton } from '@/components/BackButton'
 import { Skeleton } from '@/components/Skeleton'
-
+import BookingRequestsList from '@/components/BookingRequestsList'
 type TagRow = {
   id: string
   user_id: string
