@@ -1,8 +1,8 @@
-import PrintQR from "./_client";
+import TagClient from './_client'
 
-export const runtime = "nodejs";
+export const runtime = 'nodejs'
 
 export default function Page({ params }: { params: { id: string } }) {
-  // Pass raw route id to client; it will sanitize and build proper origin
-  return <PrintQR id={params.id} />;
+  // Pass the tagId down to client; it will fetch details and render
+  return <TagClient tagId={params.id} />
 }
