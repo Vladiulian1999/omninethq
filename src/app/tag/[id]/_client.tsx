@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import QRCode from 'react-qr-code'
 import { toPng } from 'html-to-image'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import ScanAnalytics from '@/components/ScanAnalytics'
 import { BackButton } from '@/components/BackButton'
 import toast, { Toaster } from 'react-hot-toast'
@@ -77,6 +77,97 @@ function A2HSNudge() {
   )
 }
 
+/** Processes ?action=accept|decline&booking=<id> when an owner arrives from email */
+function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?: string | null }) {
+  const router = useRouter()
+  const sp = useSearchParams()
+  const pathname = usePathname()
+  const processed = useRef(false)
+
+  useEffect(() => {
+    const action = sp.get('action') // 'accept' | 'decline'
+    const bookingId = sp.get('booking')
+
+    if (!action || !bookingId) return
+    if (processed.current) return
+    if (!ownerId) return // wait until we know who the owner is
+
+    processed.current = true
+
+    ;(async () => {
+      try {
+        // must be logged in and be the owner
+        const { data: sessionData } = await supabase.auth.getSession()
+        const userId = sessionData?.session?.user?.id
+        if (!userId) {
+          toast.error('Please log in to manage bookings.')
+          return
+        }
+        if (userId !== ownerId) {
+          toast.error("You don't have permission to manage this booking.")
+          return
+        }
+
+        if (action !== 'accept' && action !== 'decline') {
+          toast.error('Unknown action.')
+          return
+        }
+
+        // Verify booking belongs to this tag (defensive)
+        const { data: booking, error: fetchErr } = await supabase
+          .from('bookings')
+          .select('id, status, tag_id')
+          .eq('id', bookingId)
+          .single()
+
+        if (fetchErr || !booking) {
+          console.error('Fetch booking error:', fetchErr)
+          toast.error('Booking not found.')
+          return
+        }
+        if (booking.tag_id !== cleanId) {
+          toast.error('This booking does not belong to this tag.')
+          return
+        }
+
+        const nextStatus = action === 'accept' ? 'accepted' : 'declined'
+        if (booking.status === nextStatus) {
+          toast('This booking is already ' + nextStatus + '.')
+          return
+        }
+
+        const { error: updateErr } = await supabase
+          .from('bookings')
+          .update({ status: nextStatus })
+          .eq('id', booking.id)
+
+        if (updateErr) {
+          console.error('Update booking error:', updateErr)
+          toast.error('Could not update booking. Try again.')
+          return
+        }
+
+        toast.success(nextStatus === 'accepted' ? '✅ Booking accepted.' : '❌ Booking declined.')
+        // Edge Function will email the requester on UPDATE
+      } catch (e) {
+        console.error(e)
+        toast.error('Something went wrong.')
+      } finally {
+        // Clean query params so refresh doesn't re-run
+        const url = new URL(window.location.href)
+        url.searchParams.delete('action')
+        url.searchParams.delete('booking')
+        router.replace(url.pathname + (url.search ? `?${url.searchParams.toString()}` : ''), { scroll: false })
+        // If you rely on server components elsewhere, uncomment:
+        // router.refresh()
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp, ownerId])
+
+  return null
+}
+
 export default function TagClient({ tagId, scanChartData }: Props) {
   // Clean id
   const cleanId = useMemo(() => tagId.replace(/[<>\s]/g, ''), [tagId])
@@ -94,7 +185,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const qrRef = useRef<HTMLDivElement>(null)
 
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   useEffect(() => {
     const fetchTag = async () => {
@@ -146,41 +236,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const isOwner = userId && data?.user_id && userId === data.user_id
 
-  // Handle one-click email actions (?action=accept|decline&booking=<id>) for owners
-  useEffect(() => {
-    const action = searchParams?.get('action')
-    const bookingId = searchParams?.get('booking')
-    if (!action || !bookingId || !data || !userId) return
-
-    if (userId !== data.user_id) {
-      toast.error('You must be the tag owner to perform this action.')
-      router.replace(`/tag/${cleanId}`)
-      return
-    }
-
-    (async () => {
-      try {
-        if (action !== 'accept' && action !== 'decline') {
-          toast.error('Unknown action.')
-          return
-        }
-        const { error } = await supabase
-          .from('bookings')
-          .update({ status: action === 'accept' ? 'accepted' : 'declined' })
-          .eq('id', bookingId)
-          .eq('tag_id', cleanId)
-
-        if (error) throw error
-        toast.success(action === 'accept' ? '✅ Booking accepted' : '❌ Booking declined')
-      } catch (e) {
-        console.error(e)
-        toast.error('Failed to process booking action.')
-      } finally {
-        router.replace(`/tag/${cleanId}`)
-      }
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, data, userId, cleanId])
+  // ⬇️ NEW: process Accept/Decline actions from email (owner only)
+  // Placed after we know ownerId from loaded tag data
+  // (component waits until ownerId exists)
+  const ownerId = data?.user_id as string | undefined
+  // ts-expect-error server/client boundary – used only in client
+  const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />
 
   // Stripe checkout
   async function startCheckout(id: string, amountCents = 500) {
@@ -333,6 +394,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     <div className="p-10 text-center">
       <Toaster position="top-center" />
       <A2HSNudge />
+      {/* Process accept/decline from email (owner only) */}
+      {EmailAction}
       <BackButton />
 
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
