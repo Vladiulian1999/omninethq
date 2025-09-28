@@ -19,7 +19,7 @@ function ymd(d: Date) {
 }
 
 async function getTagScanStats(tagId: string): Promise<ScanPoint[]> {
-  // If it's not a UUID, skip querying to avoid useless errors
+  // If your scans.tag_id is UUID, skip non-UUIDs to avoid errors/noise
   if (!UUID.test(tagId)) return [];
 
   const supabase = createClient(
@@ -38,12 +38,8 @@ async function getTagScanStats(tagId: string): Promise<ScanPoint[]> {
     .gte('created_at', since.toISOString())
     .order('created_at', { ascending: true });
 
-  if (error || !data) {
-    // On any error, return empty data to avoid breaking the page
-    return [];
-  }
+  if (error || !data) return [];
 
-  // Aggregate into { 'YYYY-MM-DD': count }
   const map = new Map<string, number>();
   for (const row of data as { created_at: string }[]) {
     const d = new Date(row.created_at);
@@ -51,7 +47,6 @@ async function getTagScanStats(tagId: string): Promise<ScanPoint[]> {
     map.set(key, (map.get(key) ?? 0) + 1);
   }
 
-  // Convert to array sorted by date asc
   return Array.from(map.entries())
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
     .map(([date, count]) => ({ date, count }));
@@ -61,7 +56,7 @@ export default async function Page({ params }: { params: { id: string } }) {
   const rawId = params.id ?? '';
   const decodedId = decodeURIComponent(rawId).trim();
 
-  // Hard guard against placeholder/bad params
+  // Guard common placeholder/bad params
   if (!decodedId || decodedId === 'id' || decodedId === 'undefined' || decodedId === 'null') {
     redirect('/explore');
   }

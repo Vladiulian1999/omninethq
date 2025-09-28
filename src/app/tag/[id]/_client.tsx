@@ -18,9 +18,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 type FeedbackEntry = {
   id: string;
   tag_id: string;
@@ -172,10 +169,11 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 }
 
 export default function TagClient({ tagId, scanChartData }: Props) {
-  // Clean id
-  const cleanId = useMemo(() => (tagId || '').replace(/[<>\s]/g, ''), [tagId]);
+  // Use the id exactly as provided in the URL (decode only; do not strip spaces)
+  const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
+  const tagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
 
   const [data, setData] = useState<any>(null);
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
@@ -232,7 +230,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
 
     const logScan = async () => {
-      if (!UUID.test(cleanId)) return; // only log for valid UUIDs
       // let server default set created_at; ignore errors (e.g., strict RLS)
       const { error: insErr } = await supabase.from('scans').insert([{ tag_id: cleanId }]);
       if (insErr) console.warn('scan insert error:', insErr.message);
@@ -252,7 +249,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
 
-  // ⬇️ Process Accept/Decline actions from email (owner only)
+  // Process Accept/Decline actions from email (owner only)
   const ownerId = data?.user_id as string | undefined;
   // ts-expect-error server/client boundary – used only in client
   const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />;
@@ -297,18 +294,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   };
 
   const handleCopyLink = () => {
-    const url = `${origin}/tag/${cleanId}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(tagUrl);
     toast.success('🔗 Link copied to clipboard!');
   };
 
   const handleShare = async () => {
     try {
       const title = typeof document !== 'undefined' ? document.title : 'OmniNet Tag';
-      const url =
-        typeof window !== 'undefined'
-          ? window.location.href
-          : `${origin}/tag/${cleanId}`;
+      const url = typeof window !== 'undefined' ? window.location.href : tagUrl;
       const shareData = { title, url };
 
       if (typeof navigator !== 'undefined' && 'share' in navigator && (navigator as any).share) {
@@ -452,7 +445,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <div className="flex flex-col items-center gap-3 mb-8">
         <div ref={qrRef} className="bg-white p-3 rounded shadow">
-          <QRCode value={`${origin}/tag/${cleanId}`} size={160} level="H" />
+          <QRCode value={tagUrl} size={160} level="H" />
         </div>
 
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
@@ -480,7 +473,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           </button>
 
           <Link
-            href={`/tag/${cleanId}/print`}
+            href={`/tag/${encodeURIComponent(cleanId)}/print`}
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
@@ -575,4 +568,5 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
+
 
