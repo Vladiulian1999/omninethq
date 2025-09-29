@@ -105,7 +105,6 @@ function makeIcs({
     "",
   ].join("\r\n");
 
-  // base64
   const bytes = new TextEncoder().encode(ics);
   // @ts-ignore Deno specific
   const b64 = btoa(String.fromCharCode(...bytes));

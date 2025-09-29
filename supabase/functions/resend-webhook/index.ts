@@ -1,101 +1,75 @@
-// deno-lint-ignore-file no-explicit-any
-import { serve } from "std/server";
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Minimal shared-secret gate. Set RESEND_WEBHOOK_TOKEN in secrets.
-// (You can later upgrade to Resend's signature verification.)
-const TOKEN = Deno.env.get("RESEND_WEBHOOK_TOKEN") || "";
-
-const supabaseUrl = Deno.env.get("EDGE_SUPABASE_URL")!;
-const serviceRoleKey = Deno.env.get("EDGE_SERVICE_ROLE_KEY")!;
-const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-
-function parseTagValue(tags: string[] | undefined, key: string): string | null {
-  if (!tags || !Array.isArray(tags)) return null;
-  for (const t of tags) {
-    // expecting "owner:UUID" / "tag:UUID" / "booking:UUID"
-    const [k, v] = String(t).split(":");
-    if (k === key && v) return v;
-  }
-  return null;
-}
-
-serve(async (req) => {
+serve(async (req: Request) => {
   try {
-    // Require token either in header "x-webhook-token" or ?token=
     const url = new URL(req.url);
-    const tokenHeader = req.headers.get("x-webhook-token");
-    const tokenQuery = url.searchParams.get("token");
-    const ok = TOKEN && (tokenHeader === TOKEN || tokenQuery === TOKEN);
-    if (!ok) {
-      return new Response("Unauthorized", { status: 401 });
+    const qToken = url.searchParams.get("token") || "";
+    const hToken = req.headers.get("x-webhook-token") || "";
+
+    const RESEND_WEBHOOK_TOKEN = Deno.env.get("RESEND_WEBHOOK_TOKEN") || "";
+    const EDGE_SUPABASE_URL = Deno.env.get("EDGE_SUPABASE_URL") || "";
+    const EDGE_SERVICE_ROLE_KEY = Deno.env.get("EDGE_SERVICE_ROLE_KEY") || "";
+
+    if (!RESEND_WEBHOOK_TOKEN || !EDGE_SUPABASE_URL || !EDGE_SERVICE_ROLE_KEY) {
+      console.error("Missing envs");
+      return new Response("Missing envs", { status: 500 });
     }
 
-    // Resend sends JSON. Keep raw for storage.
-    const body = await req.json();
+    const okToken =
+      (qToken && qToken === RESEND_WEBHOOK_TOKEN) ||
+      (hToken && hToken === RESEND_WEBHOOK_TOKEN);
+    if (!okToken) return new Response("Unauthorized", { status: 401 });
 
-    // Resend payloads vary by event type; normalize a few fields safely.
-    // See https://resend.com/docs (we avoid hard-coding exact shapes; we store raw too).
-    const eventType: string =
-      body?.type || body?.event || body?.data?.event || "unknown";
+    const payload = await req.json();
+    const type: string = payload?.type ?? "unknown";
+    const data = payload?.data ?? {};
 
-    const data = body?.data ?? body;
+    const msg = data?.message ?? {};
+    const message_id: string | undefined = msg?.id ?? data?.message_id ?? data?.id;
+    const subject: string | undefined = msg?.subject ?? data?.subject ?? "";
+    const to_email: string | undefined =
+      (Array.isArray(data?.to) ? data.to[0] : data?.to) ||
+      (Array.isArray(msg?.to) ? msg.to[0] : msg?.to) || "";
 
-    const messageId: string | undefined =
-      data?.message?.id ?? data?.object?.id ?? data?.message_id;
+    const tags: string[] = Array.isArray(data?.tags) ? data.tags : [];
+    let owner_id: string | null = null;
+    let tag_id: string | null = null;
+    let booking_id: string | null = null;
+    for (const t of tags) {
+      if (typeof t !== "string") continue;
+      if (t.startsWith("owner:")) owner_id = t.slice(6);
+      else if (t.startsWith("tag:")) tag_id = t.slice(4);
+      else if (t.startsWith("booking:")) booking_id = t.slice(8);
+    }
 
-    const toEmail: string | undefined =
-      data?.to ?? data?.recipient ?? data?.email ?? data?.message?.to;
+    const provider_status: string | undefined =
+      data?.status ?? data?.delivery?.status ?? data?.event ?? "";
+    const provider_reason: string | undefined =
+      data?.reason ?? data?.delivery?.reason ?? "";
 
-    const fromEmail: string | undefined =
-      data?.from ?? data?.sender ?? data?.message?.from;
-
-    const subject: string | undefined =
-      data?.subject ?? data?.message?.subject;
-
-    const reason: string | undefined =
-      data?.reason ?? data?.error ?? data?.bounce?.type ?? data?.details;
-
-    const status: string | undefined =
-      data?.status ?? data?.delivery?.status ?? undefined;
-
-    // Tags we add when sending via booking-notify (see section 3)
-    const tags: string[] | undefined = data?.tags;
-    const tagId = parseTagValue(tags, "tag");
-    const ownerId = parseTagValue(tags, "owner");
-    const bookingId = parseTagValue(tags, "booking");
-
-    // Event timestamp (fallback to now)
-    const ts: string =
-      data?.created_at ?? data?.timestamp ?? new Date().toISOString();
-
-    const { error } = await supabase
-      .from("email_events")
-      .insert({
-        provider: "resend",
-        message_id: messageId,
-        event_type: String(eventType),
-        to_email: toEmail,
-        from_email: fromEmail,
-        subject,
-        reason,
-        status,
-        tag_id: tagId,
-        owner_id: ownerId as any, // uuid
-        booking_id: bookingId as any, // uuid
-        ts,
-        raw: body,
-      });
+    const sb = createClient(EDGE_SUPABASE_URL, EDGE_SERVICE_ROLE_KEY);
+    const { error } = await sb.from("email_events").insert({
+      event_type: type,
+      message_id,
+      to_email,
+      subject,
+      owner_id,
+      tag_id,
+      booking_id,
+      provider_status,
+      provider_reason,
+      raw: payload,
+    });
 
     if (error) {
-      // Log once; Resend will retry on 5xx if configured
-      console.error("email_events insert error:", error);
+      console.error("Insert error:", error);
       return new Response("DB error", { status: 500 });
     }
 
-    return new Response("OK", { status: 200 });
+    return new Response("ok", { status: 200 });
   } catch (e) {
-    console.error("resend-webhook error:", e);
-    return new Response("Bad Request", { status: 400 });
+    console.error("Webhook error:", e);
+    return new Response("error", { status: 500 });
   }
 });
