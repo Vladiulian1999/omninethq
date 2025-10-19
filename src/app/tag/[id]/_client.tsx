@@ -12,9 +12,6 @@ import OwnerBookingToggle from '@/components/OwnerBookingToggle';
 import BookingRequestForm from '@/components/BookingRequestForm';
 import BookingRequestsList from '@/components/BookingRequestsList';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
-// ...
-const supabase = useMemo(() => getSupabaseBrowser(), []);
-
 
 type FeedbackEntry = {
   id: string;
@@ -76,6 +73,7 @@ type EventName =
   | 'booking_submitted'
   | 'booking_accepted';
 
+// Browser-only logger → server writes to DB via /api/track
 async function logEvent(
   evt: EventName,
   payload: {
@@ -89,27 +87,25 @@ async function logEvent(
   } = {}
 ) {
   try {
-    const anon_id =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('omni_anon_id') ?? 'anon'
-        : 'ssr';
-
-    // Uses the public.log_event RPC if you created it; otherwise this will no-op with a console warning.
-    const { error } = await supabase.rpc('log_event', {
-      p_event: evt,
-      p_tag_id: payload.tag_id ?? null,
-      p_owner_id: payload.owner_id ?? null,
-      p_user_id: null,
-      p_anon_id: anon_id,
-      p_experiment_id: payload.experiment_id ?? null,
-      p_variant: payload.variant ?? null,
-      p_referrer:
-        payload.referrer ??
-        (typeof document !== 'undefined' ? document.referrer : null),
-      p_channel: payload.channel ?? null,
-      p_meta: payload.meta ?? {}
+    const body = JSON.stringify({
+      evt,
+      payload: {
+        ...payload,
+        anon_id:
+          typeof window !== 'undefined'
+            ? localStorage.getItem('omni_anon_id') ?? 'anon'
+            : 'ssr',
+        referrer:
+          payload.referrer ??
+          (typeof document !== 'undefined' ? document.referrer : null),
+      },
     });
-    if (error) console.warn('logEvent error', error);
+    await fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    });
   } catch (e) {
     console.warn('logEvent failed', e);
   }
@@ -164,6 +160,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
   const router = useRouter();
   const sp = useSearchParams();
   const processed = useRef(false);
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
 
   useEffect(() => {
     const action = sp.get('action'); // 'accept' | 'decline'
@@ -177,7 +174,6 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 
     (async () => {
       try {
-        // must be logged in and be the owner
         const { data: sessionData } = await supabase.auth.getSession();
         const userId = sessionData?.session?.user?.id;
         if (!userId) {
@@ -194,7 +190,6 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
           return;
         }
 
-        // Verify booking belongs to this tag (defensive)
         const { data: booking, error: fetchErr } = await supabase
           .from('bookings')
           .select('id, status, tag_id')
@@ -229,12 +224,10 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
         }
 
         toast.success(nextStatus === 'accepted' ? '✅ Booking accepted.' : '❌ Booking declined.');
-        // Edge Function will email the requester on UPDATE
       } catch (e) {
         console.error(e);
         toast.error('Something went wrong.');
       } finally {
-        // Clean query params so refresh doesn't re-run
         const url = new URL(window.location.href);
         url.searchParams.delete('action');
         url.searchParams.delete('booking');
@@ -251,7 +244,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 }
 
 export default function TagClient({ tagId, scanChartData }: Props) {
-  // Use the id exactly as provided in the URL (decode only; do not strip spaces)
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
 
   // ---------- EXPERIMENT: choose variant (A/B) ----------
@@ -287,14 +280,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         .from('messages')
         .select('title, description, category, views, featured, user_id, bookings_enabled')
         .eq('id', cleanId)
-        .maybeSingle(); // avoids 406 when not found
+        .maybeSingle();
 
       if (error) {
         setError(error.message);
       } else {
         setData(data);
         if (data) {
-          // increment views; ignore errors quietly
           const { error: incErr } = await supabase.rpc('increment_views', { row_id: cleanId });
           if (incErr) console.warn('increment_views error:', incErr.message);
         }
@@ -317,7 +309,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
 
     const logScan = async () => {
-      // let server default set created_at; ignore errors (e.g., strict RLS)
       const { error: insErr } = await supabase.from('scans').insert([{ tag_id: cleanId }]);
       if (insErr) console.warn('scan insert error:', insErr.message);
 
@@ -332,16 +323,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     fetchFeedback();
     getUser();
     logScan();
-  }, [cleanId]);
+  }, [cleanId, supabase]);
 
   // ---------- Analytics events ----------
   useEffect(() => {
-    // Page view
     logEvent('view_tag', { tag_id: cleanId }).catch(() => {});
   }, [cleanId]);
 
   useEffect(() => {
-    // CTA impression (once per mount)
     if (!impressionSent.current) {
       logEvent('cta_impression', {
         tag_id: cleanId,
@@ -354,7 +343,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
 
-  // Process Accept/Decline actions from email (owner only)
   const ownerId = data?.user_id as string | undefined;
   // ts-expect-error server/client boundary – used only in client
   const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />;
@@ -368,7 +356,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents })
+        body: JSON.stringify({ tagId: id, refCode, amountCents }),
       });
 
       const { url, error } = await res.json();
@@ -393,19 +381,16 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     await logEvent('cta_click', { tag_id: cleanId, experiment_id: EXP_ID, variant });
 
     if (variant === 'A') {
-      // Book now (primary): log booking_start and scroll to booking section
       await logEvent('booking_start', { tag_id: cleanId });
       const el = document.getElementById('booking-section');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
-      // Support this Tag (primary)
       await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       startCheckout(cleanId, 500);
     }
   };
 
   const onSupportClick = async () => {
-    // This is the dedicated Support button in the buttons group
     await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant: variant ?? null });
     startCheckout(cleanId, 500);
   };
@@ -458,8 +443,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         tag_id: cleanId,
         name: name || 'Anonymous',
         message,
-        rating
-      }
+        rating,
+      },
     ]);
     if (!error) {
       setName('');
