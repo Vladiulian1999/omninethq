@@ -33,6 +33,90 @@ type Props = {
   scanChartData: { date: string; count: number }[];
 };
 
+/* =========================
+   A/B experiment + analytics (inlined)
+   ========================= */
+
+const EXP_ID = 'cta_main_v1';
+const VARIANTS = ['A', 'B'] as const;
+
+function getAnonId(): string {
+  try {
+    const k = 'omni_anon_id';
+    let id = localStorage.getItem(k);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(k, id);
+    }
+    return id;
+  } catch {
+    return 'anon';
+  }
+}
+
+function hashFNV(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+  }
+  return h >>> 0;
+}
+
+function assignVariant(experimentId: string, tagId: string, variants = VARIANTS) {
+  const anon = getAnonId();
+  const idx = hashFNV(`${experimentId}:${tagId}:${anon}`) % variants.length;
+  return variants[idx];
+}
+
+type EventName =
+  | 'view_tag'
+  | 'cta_impression'
+  | 'cta_click'
+  | 'checkout_start'
+  | 'booking_start'
+  | 'booking_submitted'
+  | 'booking_accepted';
+
+async function logEvent(
+  evt: EventName,
+  payload: {
+    tag_id?: string;
+    owner_id?: string | null;
+    experiment_id?: string | null;
+    variant?: string | null;
+    channel?: string | null;
+    referrer?: string | null;
+    meta?: Record<string, any>;
+  } = {}
+) {
+  try {
+    const anon_id =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('omni_anon_id') ?? 'anon'
+        : 'ssr';
+
+    // Uses the public.log_event RPC if you created it; otherwise this will no-op with a console warning.
+    const { error } = await supabase.rpc('log_event', {
+      p_event: evt,
+      p_tag_id: payload.tag_id ?? null,
+      p_owner_id: payload.owner_id ?? null,
+      p_user_id: null,
+      p_anon_id: anon_id,
+      p_experiment_id: payload.experiment_id ?? null,
+      p_variant: payload.variant ?? null,
+      p_referrer:
+        payload.referrer ??
+        (typeof document !== 'undefined' ? document.referrer : null),
+      p_channel: payload.channel ?? null,
+      p_meta: payload.meta ?? {}
+    });
+    if (error) console.warn('logEvent error', error);
+  } catch (e) {
+    console.warn('logEvent failed', e);
+  }
+}
+
 /** A2HS prompt nudge (inlined) */
 function A2HSNudge() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -171,6 +255,11 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 export default function TagClient({ tagId, scanChartData }: Props) {
   // Use the id exactly as provided in the URL (decode only; do not strip spaces)
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
+
+  // ---------- EXPERIMENT: choose variant (A/B) ----------
+  const variant = useMemo(() => assignVariant(EXP_ID, cleanId), [cleanId]);
+  const impressionSent = useRef(false);
+
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
   const tagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
@@ -247,6 +336,24 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     logScan();
   }, [cleanId]);
 
+  // ---------- Analytics events ----------
+  useEffect(() => {
+    // Page view
+    logEvent('view_tag', { tag_id: cleanId }).catch(() => {});
+  }, [cleanId]);
+
+  useEffect(() => {
+    // CTA impression (once per mount)
+    if (!impressionSent.current) {
+      logEvent('cta_impression', {
+        tag_id: cleanId,
+        experiment_id: EXP_ID,
+        variant
+      }).catch(() => {});
+      impressionSent.current = true;
+    }
+  }, [cleanId, variant]);
+
   const isOwner = userId && data?.user_id && userId === data.user_id;
 
   // Process Accept/Decline actions from email (owner only)
@@ -263,7 +370,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents }),
+        body: JSON.stringify({ tagId: id, refCode, amountCents })
       });
 
       const { url, error } = await res.json();
@@ -282,6 +389,28 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       toast.error('❌ Could not start checkout');
     }
   }
+
+  // ---------- CTA click handlers ----------
+  const onPrimaryCTAClick = async () => {
+    await logEvent('cta_click', { tag_id: cleanId, experiment_id: EXP_ID, variant });
+
+    if (variant === 'A') {
+      // Book now (primary): log booking_start and scroll to booking section
+      await logEvent('booking_start', { tag_id: cleanId });
+      const el = document.getElementById('booking-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      // Support this Tag (primary)
+      await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
+      startCheckout(cleanId, 500);
+    }
+  };
+
+  const onSupportClick = async () => {
+    // This is the dedicated Support button in the buttons group
+    await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant: variant ?? null });
+    startCheckout(cleanId, 500);
+  };
 
   const handleDownload = async () => {
     if (!qrRef.current) return;
@@ -331,8 +460,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         tag_id: cleanId,
         name: name || 'Anonymous',
         message,
-        rating,
-      },
+        rating
+      }
     ]);
     if (!error) {
       setName('');
@@ -443,6 +572,17 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>
       )}
 
+      {/* ===== Primary CTA block (A/B) ===== */}
+      <div className="my-4 flex justify-center">
+        <button
+          id="cta-main"
+          onClick={onPrimaryCTAClick}
+          className="h-12 px-6 rounded-2xl text-white bg-black hover:bg-gray-800 transition text-sm"
+        >
+          {variant === 'A' ? '📅 Book now' : '💸 Support this Tag'}
+        </button>
+      </div>
+
       <div className="flex flex-col items-center gap-3 mb-8">
         <div ref={qrRef} className="bg-white p-3 rounded shadow">
           <QRCode value={tagUrl} size={160} level="H" />
@@ -482,7 +622,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           </Link>
 
           <button
-            onClick={() => startCheckout(cleanId, 500)}
+            id="support-tag"
+            onClick={onSupportClick}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
           >
             💸 Support this Tag
@@ -494,7 +635,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       {/* Booking Section */}
       <hr className="my-8 border-gray-300" />
-      <h2 className="text-xl font-semibold mb-4">📅 Booking</h2>
+      <h2 id="booking-section" className="text-xl font-semibold mb-4">📅 Booking</h2>
       <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
 
       {/* Owner’s list of requests */}
@@ -568,5 +709,3 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
-
-
