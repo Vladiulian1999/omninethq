@@ -5,25 +5,37 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 let _client: SupabaseClient | null = null;
 
 /**
- * getSupabaseBrowser()
- * - Safe to import anywhere (no env reads at module scope)
- * - Only creates the client when CALLED (typically inside a client component/event)
+ * Browser-only Supabase client.
+ * - Safe to import anywhere (no work at module load)
+ * - Lazily reads NEXT_PUBLIC_* envs the first time you call it
+ * - Persists session in the browser
  */
 export function getSupabaseBrowser(): SupabaseClient {
   if (_client) return _client;
 
-  // Read envs only when invoked (runtime, client)
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // If this somehow runs without envs in the browser, fail softly (no build-time throw)
+  // Don't throw at import time; only validate when actually called in the browser.
   if (!url || !anon) {
     throw new Error('Supabase browser client missing public envs at runtime.');
   }
 
   _client = createClient(url, anon, {
-    auth: { persistSession: true, detectSessionInUrl: true },
+    auth: {
+      persistSession: true,
+      detectSessionInUrl: true,
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
   });
+
   return _client;
 }
+
+/* Optional: also export a noop server getter here if you were importing it from this file by mistake. */
+export function getSupabaseServer(): never {
+  throw new Error('getSupabaseServer() should not be imported from supabase-browser. Use "@/lib/supabase".');
+}
+
+
 
