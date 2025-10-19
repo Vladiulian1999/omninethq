@@ -1,13 +1,13 @@
 // Edge Function: booking-notify (production, hardened)
 // - INSERT: emails requester (confirmation) + owner (Accept/Decline links)
 // - UPDATE: emails requester (Accepted/Declined)
-// - Idempotent sends with X-Entity-Ref-ID
+// - Idempotent sends with Idempotency-Key
 // - Fallback owner lookup (messages -> auth.user via Admin API)
 // - Retry for Resend 429/5xx
 // - "Accepted" includes Google Calendar link + ICS attachment (guarded)
 // - Sender: notify@omninethq.co.uk
 // - API key normalization (trim/unquote/remove "Bearer ") + fingerprint logging (no secrets)
-// - Resend tags on all sends: ["booking","tag:<id>","owner:<uuid>","booking:<id>"]
+// - Resend tags (correct format): [{name:'type',value:'booking'},{name:'tag',value:<id>},{name:'owner',value:<uuid>},{name:'booking',value:<id>}]
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -18,6 +18,7 @@ type Payload = {
 };
 
 type Attachment = { filename: string; content: string }; // base64
+type TagKV = { name: string; value: string };
 
 const FROM = "OmniNet <notify@omninethq.co.uk>";
 const RESEND_URL = "https://api.resend.com/emails";
@@ -42,7 +43,6 @@ function fmtDate(iso?: string) {
 }
 
 function toGoogleDate(iso: string) {
-  // returns YYYYMMDDTHHMMSSZ
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   const yyyy = d.getUTCFullYear();
@@ -112,7 +112,6 @@ function makeIcs({
 }
 
 function normalizeApiKey(k?: string) {
-  // Trim whitespace, strip wrapping single/double quotes, remove accidental "Bearer " prefix, strip BOM
   const s = (k ?? "").replace(/^\uFEFF/, "").trim();
   const unquoted = s.replace(/^['"]|['"]$/g, "");
   const noBearer = unquoted.replace(/^Bearer\s+/i, "");
@@ -127,13 +126,13 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-/** Build Resend tags so webhooks can attribute events to OmniNet objects */
-function buildTags(ownerId?: string, tagId?: string, bookingId?: string): string[] {
-  const tags: string[] = ["booking"]; // generic type
-  if (tagId) tags.push(`tag:${tagId}`);
-  if (ownerId) tags.push(`owner:${ownerId}`);
-  if (bookingId) tags.push(`booking:${bookingId}`);
-  return tags;
+/** Build Resend tags in the correct KV format (values must be a-zA-Z0-9_- only) */
+function buildTags(ownerId?: string, tagId?: string, bookingId?: string): TagKV[] {
+  const kv: TagKV[] = [{ name: "type", value: "booking" }];
+  if (tagId) kv.push({ name: "tag", value: String(tagId).replace(/[^A-Za-z0-9_-]/g, "-") });
+  if (ownerId) kv.push({ name: "owner", value: String(ownerId).replace(/[^A-Za-z0-9_-]/g, "-") });
+  if (bookingId) kv.push({ name: "booking", value: String(bookingId).replace(/[^A-Za-z0-9_-]/g, "-") });
+  return kv;
 }
 
 async function sendEmail({
@@ -146,7 +145,7 @@ async function sendEmail({
   label,
   idempotencyKey,
   attachments,
-  tags, // <-- NEW
+  tags,
   maxRetries = 3,
 }: {
   apiKey: string;
@@ -158,15 +157,15 @@ async function sendEmail({
   label?: string;
   idempotencyKey?: string;
   attachments?: Attachment[];
-  tags?: string[]; // <-- NEW
+  tags?: TagKV[];
   maxRetries?: number;
 }) {
   const toStr = Array.isArray(to) ? to.join(", ") : to;
   const body: Record<string, unknown> = { from: FROM, to, subject, html };
-  if (text) body.text = text;
+  if (text !== undefined) body.text = text;
   if (replyTo) body.reply_to = replyTo;
   if (attachments?.length) body.attachments = attachments;
-  if (tags?.length) body.tags = tags; // <-- NEW
+  if (tags?.length) body.tags = tags;
 
   let attempt = 0;
   while (true) {
@@ -176,7 +175,7 @@ async function sendEmail({
       "Content-Type": "application/json",
       Accept: "application/json",
     };
-    if (idempotencyKey) headers["X-Entity-Ref-ID"] = idempotencyKey;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
 
     console.log(`${label ?? "Email"} → to: ${toStr} | subject: ${subject} | attempt: ${attempt}`);
     const res = await fetch(RESEND_URL, {
@@ -190,10 +189,8 @@ async function sendEmail({
 
     if (res.ok) return true;
 
-    // retry on 429/5xx
     if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
-      const wait = 300 * attempt; // simple backoff
-      await sleep(wait);
+      await sleep(300 * attempt);
       continue;
     }
     return false;
@@ -209,7 +206,6 @@ serve(async (req: Request) => {
     const EDGE_SUPABASE_URL = Deno.env.get("EDGE_SUPABASE_URL") || "";
     const EDGE_SERVICE_ROLE_KEY = Deno.env.get("EDGE_SERVICE_ROLE_KEY") || "";
 
-    // Safe fingerprint log (no secrets revealed)
     const fp = await sha256Hex(RESEND_API_KEY);
     console.log(
       "ENV check:",
@@ -255,7 +251,7 @@ serve(async (req: Request) => {
     const message: string = String(record.message ?? "").trim();
     const preferredAt: string | undefined = record.preferred_at ?? undefined;
 
-    // Fallback owner resolution (belt & braces)
+    // Fallback owner resolution
     if ((!ownerEmail || !ownerId) && EDGE_SUPABASE_URL && EDGE_SERVICE_ROLE_KEY && tagId) {
       const sb = createClient(EDGE_SUPABASE_URL, EDGE_SERVICE_ROLE_KEY);
       if (!ownerId) {
@@ -274,12 +270,10 @@ serve(async (req: Request) => {
       }
     }
 
-    // Build tags once we have resolved ownerId/tagId/bookingId
     const emailTags = buildTags(ownerId, tagId, bookingId);
 
     /* ----- INSERT: send requester + owner ----- */
     if (type === "INSERT") {
-      // Requester confirmation
       if (requesterEmail) {
         const subject = "📅 Booking Request Received";
         const html = `
@@ -300,13 +294,12 @@ serve(async (req: Request) => {
           text,
           label: "Requester confirmation",
           idempotencyKey: `req-confirm-${bookingId}`,
-          tags: emailTags, // <-- tags
+          tags: emailTags,
         });
       } else {
         console.warn("INSERT: requesterEmail missing");
       }
 
-      // Owner notification with action links
       if (ownerEmail && tagId) {
         const ownerLink = `https://omninethq.co.uk/tag/${encodeURIComponent(tagId)}`;
         const acceptLink = `${ownerLink}?action=accept&booking=${encodeURIComponent(bookingId)}`;
@@ -341,7 +334,7 @@ serve(async (req: Request) => {
           replyTo: requesterEmail || undefined,
           label: "Owner notification",
           idempotencyKey: `owner-notify-${bookingId}`,
-          tags: emailTags, // <-- tags
+          tags: emailTags,
         });
       } else {
         console.warn("INSERT: ownerEmail or tagId missing", { ownerEmail, tagId, ownerId });
@@ -365,7 +358,6 @@ serve(async (req: Request) => {
       }
 
       if (status === "accepted") {
-        // Calendar helpers
         const start = preferredAt ? toGoogleDate(preferredAt) : "";
         const end = preferredAt
           ? toGoogleDate(new Date(new Date(preferredAt).getTime() + 60 * 60_000).toISOString())
@@ -388,7 +380,6 @@ serve(async (req: Request) => {
           (gcal ? `Add to Google Calendar: ${gcal}\n` : "") +
           `The tag owner will contact you soon.\n`;
 
-        // Try with ICS attachment; if it fails, send without attachment
         let attachments: Attachment[] | undefined = undefined;
         try {
           if (preferredAt) {
@@ -415,7 +406,7 @@ serve(async (req: Request) => {
           label: "Requester accepted",
           idempotencyKey: `req-accepted-${bookingId}`,
           attachments,
-          tags: emailTags, // <-- tags
+          tags: emailTags,
         });
 
         if (!sent && attachments?.length) {
@@ -428,7 +419,7 @@ serve(async (req: Request) => {
             text,
             label: "Requester accepted (no ICS)",
             idempotencyKey: `req-accepted-noics-${bookingId}`,
-            tags: emailTags, // <-- tags
+            tags: emailTags,
           });
         }
       } else if (status === "declined") {
@@ -450,7 +441,7 @@ serve(async (req: Request) => {
           text,
           label: "Requester declined",
           idempotencyKey: `req-declined-${bookingId}`,
-          tags: emailTags, // <-- tags
+          tags: emailTags,
         });
       } else {
         console.log("UPDATE with unhandled status:", status);
@@ -462,7 +453,6 @@ serve(async (req: Request) => {
       });
     }
 
-    // Unknown type
     return new Response(JSON.stringify({ ok: true, ignored: true }), {
       status: 200,
       headers: { "content-type": "application/json" },

@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { getSupabaseBrowser } from '@/lib/supabase-browser';
+// ...
+const supabase = useMemo(() => getSupabaseBrowser(), []);
+
 
 // Optional: restrict this page by email (comma-separated allowlist in env)
 // Example: NEXT_PUBLIC_ADMIN_EMAILS="you@domain.com,other@domain.com"

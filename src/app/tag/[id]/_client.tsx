@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import QRCode from 'react-qr-code';
 import { toPng } from 'html-to-image';
 import Link from 'next/link';
@@ -12,11 +11,10 @@ import toast, { Toaster } from 'react-hot-toast';
 import OwnerBookingToggle from '@/components/OwnerBookingToggle';
 import BookingRequestForm from '@/components/BookingRequestForm';
 import BookingRequestsList from '@/components/BookingRequestsList';
+import { getSupabaseBrowser } from '@/lib/supabase-browser';
+// ...
+const supabase = useMemo(() => getSupabaseBrowser(), []);
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type FeedbackEntry = {
   id: string;
