@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -16,6 +16,7 @@ type Tag = {
 }
 
 export default function MyTagsClient() {
+  const supabase = useMemo(() => getSupabaseBrowser(), [])
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -57,7 +58,7 @@ export default function MyTagsClient() {
 
     setTags(enriched)
     setLoading(false)
-  }, [router])
+  }, [router, supabase])
 
   useEffect(() => {
     fetchUserAndTags()
@@ -86,7 +87,7 @@ export default function MyTagsClient() {
         <p className="text-center text-gray-500">Loading...</p>
       ) : tags.length === 0 ? (
         <p className="text-center text-gray-600">
-          You haven&apos;t created any tags yet.{' '}
+          You haven&apos;t created any tags yet.{` `}
           <Link href="/new" className="text-blue-600 hover:underline">
             Create one now.
           </Link>
