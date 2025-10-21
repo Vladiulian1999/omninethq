@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
-// ...
-const supabase = useMemo(() => getSupabaseBrowser(), []);
-
 
 // Optional: restrict this page by email (comma-separated allowlist in env)
 // Example: NEXT_PUBLIC_ADMIN_EMAILS="you@domain.com,other@domain.com"
@@ -49,6 +45,9 @@ type RawEvent = {
 };
 
 export default function ExperimentsClient() {
+  // ✅ Hooks belong INSIDE the component:
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
+
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -72,16 +71,19 @@ export default function ExperimentsClient() {
       setUserEmail(email);
       setAuthChecked(true);
     })();
-  }, []);
+  }, [supabase]);
 
   // helper: fetch from the first available view name
-  const fetchFirstAvailable = useCallback(async <T,>(viewNames: string[]) => {
-    for (const v of viewNames) {
-      const { data, error } = await supabase.from(v).select('*');
-      if (!error && data) return data as T[];
-    }
-    return [] as T[];
-  }, []);
+  const fetchFirstAvailable = useCallback(
+    async <T,>(viewNames: string[]) => {
+      for (const v of viewNames) {
+        const { data, error } = await supabase.from(v).select('*');
+        if (!error && data) return data as T[];
+      }
+      return [] as T[];
+    },
+    [supabase]
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -131,29 +133,34 @@ export default function ExperimentsClient() {
   }, [stats]);
 
   // open raw events modal for a specific variant
-  const openRaw = useCallback(async (variant: 'A' | 'B') => {
-    setRawOpen(true);
-    setRawVariant(variant);
-    setRawLoading(true);
-    setRawError(null);
-    setRawRows(null);
-    // recent 200 events for this experiment & variant (desc)
-    const { data, error } = await supabase
-      .from('analytics_events')
-      .select('id,created_at,event,tag_id,owner_id,user_id,anon_id,experiment_id,variant,referrer,channel,meta')
-      .eq('experiment_id', EXPERIMENT_ID)
-      .eq('variant', variant)
-      .order('created_at', { ascending: false })
-      .limit(200);
+  const openRaw = useCallback(
+    async (variant: 'A' | 'B') => {
+      setRawOpen(true);
+      setRawVariant(variant);
+      setRawLoading(true);
+      setRawError(null);
+      setRawRows(null);
+      // recent 200 events for this experiment & variant (desc)
+      const { data, error } = await supabase
+        .from('analytics_events')
+        .select(
+          'id,created_at,event,tag_id,owner_id,user_id,anon_id,experiment_id,variant,referrer,channel,meta'
+        )
+        .eq('experiment_id', EXPERIMENT_ID)
+        .eq('variant', variant)
+        .order('created_at', { ascending: false })
+        .limit(200);
 
-    if (error) {
-      setRawError(error.message || 'Failed to load events');
-      setRawRows([]);
-    } else {
-      setRawRows((data || []) as RawEvent[]);
-    }
-    setRawLoading(false);
-  }, []);
+      if (error) {
+        setRawError(error.message || 'Failed to load events');
+        setRawRows([]);
+      } else {
+        setRawRows((data || []) as RawEvent[]);
+      }
+      setRawLoading(false);
+    },
+    [supabase]
+  );
 
   const closeRaw = useCallback(() => {
     setRawOpen(false);
@@ -172,7 +179,9 @@ export default function ExperimentsClient() {
         <h1 className="text-2xl font-bold mb-2">Admins only</h1>
         <p className="text-gray-600">Please sign in with an authorized account.</p>
         <div className="mt-4">
-          <Link href="/login" className="border rounded-xl px-4 py-2 hover:bg-gray-50">Go to Login</Link>
+          <Link href="/login" className="border rounded-xl px-4 py-2 hover:bg-gray-50">
+            Go to Login
+          </Link>
         </div>
       </div>
     );
@@ -201,7 +210,9 @@ export default function ExperimentsClient() {
             <div className="text-sm text-gray-500">Variant</div>
             <div className="text-lg font-semibold mb-1">{row.variant}</div>
             <div className="text-sm text-gray-600">CTR</div>
-            <div className="text-2xl font-bold">{row.ctr_percent?.toFixed?.(1) ?? Number(row.ctr_percent ?? 0).toFixed(1)}%</div>
+            <div className="text-2xl font-bold">
+              {row.ctr_percent?.toFixed?.(1) ?? Number(row.ctr_percent ?? 0).toFixed(1)}%
+            </div>
             <div className="mt-3 text-xs text-gray-500">
               {row.impressions} impressions • {row.clicks} clicks
             </div>
@@ -209,7 +220,10 @@ export default function ExperimentsClient() {
             <div className="mt-3 h-2 w-full bg-gray-100 rounded overflow-hidden">
               <div
                 className="h-2 rounded"
-                style={{ width: `${Math.max(0, Math.min(100, Number(row.ctr_percent || 0)))}%`, background: '#111' }}
+                style={{
+                  width: `${Math.max(0, Math.min(100, Number(row.ctr_percent || 0)))}%`,
+                  background: '#111',
+                }}
               />
             </div>
 
@@ -234,25 +248,33 @@ export default function ExperimentsClient() {
       <div className="mb-3 flex flex-wrap gap-2">
         <button
           onClick={() => setSortKey('ctr')}
-          className={`px-3 py-1 rounded-xl border ${sortKey === 'ctr' ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+          className={`px-3 py-1 rounded-xl border ${
+            sortKey === 'ctr' ? 'bg-black text-white' : 'hover:bg-gray-50'
+          }`}
         >
           Sort by CTR
         </button>
         <button
           onClick={() => setSortKey('impressions')}
-          className={`px-3 py-1 rounded-xl border ${sortKey === 'impressions' ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+          className={`px-3 py-1 rounded-xl border ${
+            sortKey === 'impressions' ? 'bg-black text-white' : 'hover:bg-gray-50'
+          }`}
         >
           Sort by Impressions
         </button>
         <button
           onClick={() => setSortKey('clicks')}
-          className={`px-3 py-1 rounded-xl border ${sortKey === 'clicks' ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+          className={`px-3 py-1 rounded-xl border ${
+            sortKey === 'clicks' ? 'bg-black text-white' : 'hover:bg-gray-50'
+          }`}
         >
           Sort by Clicks
         </button>
         <button
           onClick={() => setSortKey('variant')}
-          className={`px-3 py-1 rounded-xl border ${sortKey === 'variant' ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+          className={`px-3 py-1 rounded-xl border ${
+            sortKey === 'variant' ? 'bg-black text-white' : 'hover:bg-gray-50'
+          }`}
         >
           Sort by Name
         </button>
@@ -279,14 +301,20 @@ export default function ExperimentsClient() {
                     <td className="p-3">{variant}</td>
                     <td className="p-3">{r.event_type}</td>
                     <td className="p-3">{r.events}</td>
-                    <td className="p-3 text-gray-500">{r.first_seen ? new Date(r.first_seen).toLocaleString() : '—'}</td>
-                    <td className="p-3 text-gray-500">{r.last_seen ? new Date(r.last_seen).toLocaleString() : '—'}</td>
+                    <td className="p-3 text-gray-500">
+                      {r.first_seen ? new Date(r.first_seen).toLocaleString() : '—'}
+                    </td>
+                    <td className="p-3 text-gray-500">
+                      {r.last_seen ? new Date(r.last_seen).toLocaleString() : '—'}
+                    </td>
                   </tr>
                 ))
             )}
             {stats.length === 0 && (
               <tr>
-                <td className="p-6 text-center text-gray-500" colSpan={5}>No events yet.</td>
+                <td className="p-6 text-center text-gray-500" colSpan={5}>
+                  No events yet.
+                </td>
               </tr>
             )}
           </tbody>
@@ -294,7 +322,8 @@ export default function ExperimentsClient() {
       </div>
 
       <div className="mt-6 text-xs text-gray-500">
-        Tip: Events are logged by your client via <code>logEvent()</code> RPC. Variants stick per device via <code>localStorage</code>.
+        Tip: Events are logged by <code>/api/track</code>. Variants stick per device via{' '}
+        <code>localStorage</code>.
       </div>
 
       {/* Raw modal */}
@@ -302,13 +331,22 @@ export default function ExperimentsClient() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-xl w-[min(900px,92vw)] max-h-[80vh] flex flex-col">
             <div className="p-4 border-b flex items-center justify-between">
-              <div className="font-semibold">Raw events — {EXPERIMENT_ID} / Variant {rawVariant}</div>
-              <button onClick={closeRaw} className="text-sm border rounded-lg px-3 py-1 hover:bg-gray-50">Close</button>
+              <div className="font-semibold">
+                Raw events — {EXPERIMENT_ID} / Variant {rawVariant}
+              </div>
+              <button
+                onClick={closeRaw}
+                className="text-sm border rounded-lg px-3 py-1 hover:bg-gray-50"
+              >
+                Close
+              </button>
             </div>
             <div className="p-4 overflow-auto text-xs">
               {rawLoading && <div>Loading…</div>}
               {rawError && <div className="text-red-600">{rawError}</div>}
-              {!rawLoading && !rawError && (!rawRows || rawRows.length === 0) && <div>No rows.</div>}
+              {!rawLoading && !rawError && (!rawRows || rawRows.length === 0) && (
+                <div>No rows.</div>
+              )}
               {!rawLoading && !rawError && rawRows && (
                 <pre className="whitespace-pre-wrap break-words">
                   {JSON.stringify(rawRows, null, 2)}
