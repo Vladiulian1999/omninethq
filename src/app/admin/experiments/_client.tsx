@@ -7,9 +7,9 @@ import { getSupabaseBrowser } from '@/lib/supabase-browser';
 const supabase = getSupabaseBrowser();
 
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-
-const EXPERIMENT_ID = 'cta_main_v1';
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
 type StatRow = {
   variant: string;
@@ -47,6 +47,7 @@ export default function ExperimentsClient() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<'variant' | 'impressions' | 'clicks' | 'ctr'>('ctr');
 
+  // minimal admin guard (client-side)
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -58,7 +59,7 @@ export default function ExperimentsClient() {
 
   const allowed = useMemo(() => {
     if (!authChecked) return false;
-    if (ADMIN_EMAILS.length === 0) return true;
+    if (ADMIN_EMAILS.length === 0) return true; // allow any logged-in user if no allowlist set
     if (!userEmail) return false;
     return ADMIN_EMAILS.includes(userEmail);
   }, [authChecked, userEmail]);
@@ -87,6 +88,7 @@ export default function ExperimentsClient() {
     }
   }, [dateRange]);
 
+  // helper: read the first view name that exists
   const fetchFirstAvailable = useCallback(async <T,>(viewNames: string[]) => {
     for (const v of viewNames) {
       const { data, error } = await supabase.from(v).select('*');
@@ -118,35 +120,53 @@ export default function ExperimentsClient() {
   const sortedCtr = useMemo(() => {
     const rows = [...ctr];
     switch (sortKey) {
-      case 'impressions': return rows.sort((a, b) => b.impressions - a.impressions);
-      case 'clicks':      return rows.sort((a, b) => b.clicks - a.clicks);
-      case 'variant':     return rows.sort((a, b) => a.variant.localeCompare(b.variant));
+      case 'impressions':
+        return rows.sort((a, b) => b.impressions - a.impressions);
+      case 'clicks':
+        return rows.sort((a, b) => b.clicks - a.clicks);
+      case 'variant':
+        return rows.sort((a, b) => a.variant.localeCompare(b.variant));
       case 'ctr':
-      default:            return rows.sort((a, b) => (b.ctr_percent ?? 0) - (a.ctr_percent ?? 0));
+      default:
+        return rows.sort((a, b) => (b.ctr_percent ?? 0) - (a.ctr_percent ?? 0));
     }
   }, [ctr, sortKey]);
 
+  // Table tallies, optionally narrowed to a tag via the byTag view
   const tableStats = useMemo(() => {
-    // If tagFilter is set, filter the tallies to impressions/clicks for that tag via byTag
     if (!tagFilter) return stats;
-    const tagRows = byTag.filter(r => r.tag_id === tagFilter);
-    // Convert byTag rows into pseudo tallies (only for impressions/clicks)
+    const tagRows = byTag.filter((r) => r.tag_id === tagFilter);
     const tallies: StatRow[] = [];
     for (const r of tagRows) {
-      tallies.push({ variant: r.variant, event_type: 'cta_impression', events: r.impressions, first_seen: null, last_seen: null });
-      tallies.push({ variant: r.variant, event_type: 'cta_click', events: r.clicks, first_seen: null, last_seen: null });
+      tallies.push({
+        variant: r.variant,
+        event_type: 'cta_impression',
+        events: r.impressions,
+        first_seen: null,
+        last_seen: null,
+      });
+      tallies.push({
+        variant: r.variant,
+        event_type: 'cta_click',
+        events: r.clicks,
+        first_seen: null,
+        last_seen: null,
+      });
     }
     return tallies;
   }, [stats, byTag, tagFilter]);
 
   if (!authChecked) return <div className="p-6">Loading…</div>;
+
   if (!allowed) {
     return (
       <div className="p-8 max-w-xl mx-auto text-center">
         <h1 className="text-2xl font-bold mb-2">Admins only</h1>
         <p className="text-gray-600">Please sign in with an authorized account.</p>
         <div className="mt-4">
-          <Link href="/login" className="border rounded-xl px-4 py-2 hover:bg-gray-50">Go to Login</Link>
+          <Link href="/login" className="border rounded-xl px-4 py-2 hover:bg-gray-50">
+            Go to Login
+          </Link>
         </div>
       </div>
     );
@@ -171,11 +191,13 @@ export default function ExperimentsClient() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center mb-4">
         <div className="flex gap-2">
-          {(['ctr','impressions','clicks','variant'] as const).map(k => (
+          {(['ctr', 'impressions', 'clicks', 'variant'] as const).map((k) => (
             <button
               key={k}
               onClick={() => setSortKey(k)}
-              className={`px-3 py-1 rounded-xl border ${sortKey === k ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+              className={`px-3 py-1 rounded-xl border ${
+                sortKey === k ? 'bg-black text-white' : 'hover:bg-gray-50'
+              }`}
             >
               Sort by {k === 'ctr' ? 'CTR' : k.charAt(0).toUpperCase() + k.slice(1)}
             </button>
@@ -185,7 +207,7 @@ export default function ExperimentsClient() {
         <div className="ml-auto flex gap-2 items-center">
           <select
             value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as any)}
+            onChange={(e) => setDateRange(e.target.value as 'all' | '30d' | '7d')}
             className="px-3 py-1 rounded-xl border text-sm"
           >
             <option value="all">All time</option>
@@ -208,14 +230,19 @@ export default function ExperimentsClient() {
             <div className="text-sm text-gray-500">Variant</div>
             <div className="text-lg font-semibold mb-1">{row.variant}</div>
             <div className="text-sm text-gray-600">CTR</div>
-            <div className="text-2xl font-bold">{Number(row.ctr_percent ?? 0).toFixed(1)}%</div>
+            <div className="text-2xl font-bold">
+              {Number(row.ctr_percent ?? 0).toFixed(1)}%
+            </div>
             <div className="mt-3 text-xs text-gray-500">
               {row.impressions} impressions • {row.clicks} clicks
             </div>
             <div className="mt-3 h-2 w-full bg-gray-100 rounded overflow-hidden">
               <div
                 className="h-2 rounded"
-                style={{ width: `${Math.max(0, Math.min(100, Number(row.ctr_percent || 0)))}%`, background: '#111' }}
+                style={{
+                  width: `${Math.max(0, Math.min(100, Number(row.ctr_percent || 0)))}%`,
+                  background: '#111',
+                }}
               />
             </div>
           </div>
@@ -227,7 +254,7 @@ export default function ExperimentsClient() {
         )}
       </div>
 
-      {/* Tallies table (variant-level or per-tag if filtered) */}
+      {/* Tallies */}
       <div className="overflow-x-auto border rounded-2xl bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-50">
@@ -248,13 +275,19 @@ export default function ExperimentsClient() {
                     <td className="p-3">{r.variant}</td>
                     <td className="p-3">{r.event_type}</td>
                     <td className="p-3">{r.events}</td>
-                    <td className="p-3 text-gray-500">{r.first_seen ? new Date(r.first_seen).toLocaleString() : '—'}</td>
-                    <td className="p-3 text-gray-500">{r.last_seen ? new Date(r.last_seen).toLocaleString() : '—'}</td>
+                    <td className="p-3 text-gray-500">
+                      {r.first_seen ? new Date(r.first_seen).toLocaleString() : '—'}
+                    </td>
+                    <td className="p-3 text-gray-500">
+                      {r.last_seen ? new Date(r.last_seen).toLocaleString() : '—'}
+                    </td>
                   </tr>
                 ))
             ) : (
               <tr>
-                <td className="p-6 text-center text-gray-500" colSpan={5}>No events yet.</td>
+                <td className="p-6 text-center text-gray-500" colSpan={5}>
+                  No events yet.
+                </td>
               </tr>
             )}
           </tbody>
@@ -267,4 +300,5 @@ export default function ExperimentsClient() {
     </div>
   );
 }
+
 
