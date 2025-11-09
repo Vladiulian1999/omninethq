@@ -9,8 +9,10 @@ export type EventName =
   | 'checkout_start'
   | 'booking_start'
   | 'booking_submitted'
-  | 'booking_accepted';
-
+  | 'booking_accepted'
+  | 'share_click'
+  | 'share_open'; // ✅ added
+'checkout_success'; // ✅ add this
 export async function logEvent(
   evt: EventName,
   payload: {

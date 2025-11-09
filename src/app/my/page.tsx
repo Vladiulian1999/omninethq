@@ -1,10 +1,5 @@
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+import MyTagsClient from './_client'
 
-// IMPORTANT: no hooks, no supabase imports here
-import MyClient from './_client';
-
-export default function Page() {
-  return <MyClient />;
+export default function MyTagsPage() {
+  return <MyTagsClient />
 }
-

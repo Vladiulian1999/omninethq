@@ -1,9 +1,7 @@
 'use client'
-'use client'
 
-import { useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useMemo, useState } from 'react'
+import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import toast from 'react-hot-toast'
 
 type TagWithUser = {
@@ -15,33 +13,36 @@ type TagWithUser = {
   user_id: string
   scan_count: number
   created_at: string
-  users: {
-    email: string
-  }[]
+  users: { email: string }[]
 }
 
 export default function AdminClient() {
+  const supabase = useMemo(() => getSupabaseBrowser(), [])
+
   const [tags, setTags] = useState<TagWithUser[]>([])
   const [filter, setFilter] = useState<'all' | 'featured' | 'hidden'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'scanned' | 'title'>('recent')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchTags = async () => {
       const { data, error } = await supabase
         .from('tags')
-        .select('id, title, description, featured, hidden, user_id, scan_count, created_at, users:users(email)')
+        .select(
+          'id, title, description, featured, hidden, user_id, scan_count, created_at, users:users(email)'
+        )
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('❌ Supabase fetch error:', JSON.stringify(error, null, 2))
+        console.error('❌ Supabase fetch error:', error)
         toast.error('Failed to fetch tags')
-      } else {
-        setTags(data as TagWithUser[])
+        return
       }
+      setTags((data || []) as TagWithUser[])
     }
 
     fetchTags()
-  }, [])
+  }, [supabase])
 
   const filteredTags = tags
     .filter((tag) => {
@@ -63,52 +64,36 @@ export default function AdminClient() {
     })
 
   const toggleFeatured = async (tagId: string, current: boolean) => {
-    const { error } = await supabase
-      .from('tags')
-      .update({ featured: !current })
-      .eq('id', tagId)
-
+    const { error } = await supabase.from('tags').update({ featured: !current }).eq('id', tagId)
     if (error) {
       toast.error('Failed to update featured status')
-    } else {
-      toast.success(`Tag ${!current ? 'featured' : 'unfeatured'}`)
-      setTags((prev) =>
-        prev.map((tag) =>
-          tag.id === tagId ? { ...tag, featured: !current } : tag
-        )
-      )
+      return
     }
+    toast.success(`Tag ${!current ? 'featured' : 'unfeatured'}`)
+    setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, featured: !current } : t)))
   }
 
   const toggleHidden = async (tagId: string, current: boolean) => {
-    const { error } = await supabase
-      .from('tags')
-      .update({ hidden: !current })
-      .eq('id', tagId)
-
+    const { error } = await supabase.from('tags').update({ hidden: !current }).eq('id', tagId)
     if (error) {
       toast.error('Failed to update visibility')
-    } else {
-      toast.success(`Tag ${!current ? 'hidden' : 'unhidden'}`)
-      setTags((prev) =>
-        prev.map((tag) =>
-          tag.id === tagId ? { ...tag, hidden: !current } : tag
-        )
-      )
+      return
     }
+    toast.success(`Tag ${!current ? 'hidden' : 'unhidden'}`)
+    setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, hidden: !current } : t)))
   }
 
   const deleteTag = async (tagId: string) => {
     if (!confirm('Are you sure you want to delete this tag?')) return
-
+    setDeletingId(tagId)
     const { error } = await supabase.from('tags').delete().eq('id', tagId)
-
     if (error) {
       toast.error('Failed to delete tag')
     } else {
       toast.success('Tag deleted')
-      setTags((prev) => prev.filter((tag) => tag.id !== tagId))
+      setTags((prev) => prev.filter((t) => t.id !== tagId))
     }
+    setDeletingId(null)
   }
 
   return (
@@ -146,20 +131,21 @@ export default function AdminClient() {
       ) : (
         <ul className="space-y-4">
           {filteredTags.map((tag) => (
-            <li key={tag.id} className="border p-4 rounded shadow">
+            <li key={tag.id} className="border p-4 rounded shadow bg-white">
               <div className="flex justify-between items-center mb-2">
                 <h2 className="text-lg font-semibold">{tag.title}</h2>
                 {tag.users?.[0]?.email && (
-                  <span className="text-xs text-gray-500">
-                    Owner: {tag.users[0].email}
-                  </span>
+                  <span className="text-xs text-gray-500">Owner: {tag.users[0].email}</span>
                 )}
               </div>
+
               <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
+
               <div className="text-xs text-gray-400 mb-2">
-                ID: {tag.id} • Scans: {tag.scan_count ?? 0} • {tag.featured ? '🌟 Featured' : ''}{' '}
-                {tag.hidden ? '🚫 Hidden' : ''}
+                ID: {tag.id} • Scans: {tag.scan_count ?? 0} •{' '}
+                {tag.featured ? '🌟 Featured' : ''} {tag.hidden ? '🚫 Hidden' : ''}
               </div>
+
               <div className="flex gap-3 flex-wrap">
                 <button
                   onClick={() => toggleFeatured(tag.id, tag.featured)}
@@ -175,9 +161,10 @@ export default function AdminClient() {
                 </button>
                 <button
                   onClick={() => deleteTag(tag.id)}
-                  className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700"
+                  disabled={deletingId === tag.id}
+                  className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700 disabled:opacity-60"
                 >
-                  Delete
+                  {deletingId === tag.id ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
             </li>

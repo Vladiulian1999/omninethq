@@ -1,12 +1,9 @@
-import { Suspense } from 'react'
-import MyBookings from './_client'
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'My Bookings • OmniNet' }
+import ExperimentsClient from './_client';
 
 export default function Page() {
-  return (
-    <Suspense>
-      <MyBookings />
-    </Suspense>
-  )
+  return <ExperimentsClient />;
 }
+

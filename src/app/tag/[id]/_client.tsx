@@ -12,6 +12,7 @@ import OwnerBookingToggle from '@/components/OwnerBookingToggle';
 import BookingRequestForm from '@/components/BookingRequestForm';
 import BookingRequestsList from '@/components/BookingRequestsList';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import { logEvent } from '@/lib/analytics';
 
 type FeedbackEntry = {
   id: string;
@@ -29,9 +30,8 @@ type Props = {
 };
 
 /* =========================
-   A/B experiment + analytics (inlined)
+   A/B experiment + analytics
    ========================= */
-
 const EXP_ID = 'cta_main_v1';
 const VARIANTS = ['A', 'B'] as const;
 
@@ -64,54 +64,25 @@ function assignVariant(experimentId: string, tagId: string, variants = VARIANTS)
   return variants[idx];
 }
 
-type EventName =
-  | 'view_tag'
-  | 'cta_impression'
-  | 'cta_click'
-  | 'checkout_start'
-  | 'booking_start'
-  | 'booking_submitted'
-  | 'booking_accepted';
+// --- Channel helpers ---
+function buildShareUrl(baseUrl: string, channel: 'whatsapp' | 'sms' | 'copy' | 'system') {
+  const url = new URL(baseUrl);
+  url.searchParams.set('ch', channel);
+  const rid = localStorage.getItem('referral_code');
+  if (rid) url.searchParams.set('rid', rid);
+  return url.toString();
+}
 
-// Browser-only logger → server writes to DB via /api/track
-async function logEvent(
-  evt: EventName,
-  payload: {
-    tag_id?: string;
-    owner_id?: string | null;
-    experiment_id?: string | null;
-    variant?: string | null;
-    channel?: string | null;
-    referrer?: string | null;
-    meta?: Record<string, any>;
-  } = {}
-) {
+function getChannelFromQuery() {
   try {
-    const body = JSON.stringify({
-      evt,
-      payload: {
-        ...payload,
-        anon_id:
-          typeof window !== 'undefined'
-            ? localStorage.getItem('omni_anon_id') ?? 'anon'
-            : 'ssr',
-        referrer:
-          payload.referrer ??
-          (typeof document !== 'undefined' ? document.referrer : null),
-      },
-    });
-    await fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      keepalive: true,
-    });
-  } catch (e) {
-    console.warn('logEvent failed', e);
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ch') || null;
+  } catch {
+    return null;
   }
 }
 
-/** A2HS prompt nudge (inlined) */
+/** A2HS prompt nudge */
 function A2HSNudge() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [show, setShow] = useState(false);
@@ -163,13 +134,11 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
   const supabase = useMemo(() => getSupabaseBrowser(), []);
 
   useEffect(() => {
-    const action = sp.get('action'); // 'accept' | 'decline'
+    const action = sp.get('action');
     const bookingId = sp.get('booking');
-
     if (!action || !bookingId) return;
     if (processed.current) return;
-    if (!ownerId) return; // wait until we know who the owner is
-
+    if (!ownerId) return;
     processed.current = true;
 
     (async () => {
@@ -185,24 +154,14 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
           return;
         }
 
-        if (action !== 'accept' && action !== 'decline') {
-          toast.error('Unknown action.');
-          return;
-        }
-
-        const { data: booking, error: fetchErr } = await supabase
+        const { data: booking } = await supabase
           .from('bookings')
           .select('id, status, tag_id')
           .eq('id', bookingId)
           .single();
 
-        if (fetchErr || !booking) {
-          console.error('Fetch booking error:', fetchErr);
-          toast.error('Booking not found.');
-          return;
-        }
-        if (booking.tag_id !== cleanId) {
-          toast.error('This booking does not belong to this tag.');
+        if (!booking || booking.tag_id !== cleanId) {
+          toast.error('Booking not found or invalid.');
           return;
         }
 
@@ -212,32 +171,17 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
           return;
         }
 
-        const { error: updateErr } = await supabase
-          .from('bookings')
-          .update({ status: nextStatus })
-          .eq('id', booking.id);
-
-        if (updateErr) {
-          console.error('Update booking error:', updateErr);
-          toast.error('Could not update booking. Try again.');
-          return;
-        }
-
+        await supabase.from('bookings').update({ status: nextStatus }).eq('id', booking.id);
         toast.success(nextStatus === 'accepted' ? '✅ Booking accepted.' : '❌ Booking declined.');
-      } catch (e) {
-        console.error(e);
+      } catch {
         toast.error('Something went wrong.');
       } finally {
         const url = new URL(window.location.href);
         url.searchParams.delete('action');
         url.searchParams.delete('booking');
-        router.replace(
-          url.pathname + (url.search ? `?${url.searchParams.toString()}` : ''),
-          { scroll: false }
-        );
+        router.replace(url.pathname, { scroll: false });
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp, ownerId]);
 
   return null;
@@ -246,14 +190,11 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
-
-  // ---------- EXPERIMENT: choose variant (A/B) ----------
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId), [cleanId]);
   const impressionSent = useRef(false);
-
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
-  const tagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
+  const baseTagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
 
   const [data, setData] = useState<any>(null);
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
@@ -264,10 +205,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [scanCount, setScanCount] = useState<number>(0);
   const qrRef = useRef<HTMLDivElement>(null);
-
   const router = useRouter();
 
-  // Early guard for placeholder/bad IDs
+  // ---------- Basic data ----------
   useEffect(() => {
     if (!cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null') {
       router.replace('/explore');
@@ -281,16 +221,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         .select('title, description, category, views, featured, user_id, bookings_enabled')
         .eq('id', cleanId)
         .maybeSingle();
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setData(data);
-        if (data) {
-          const { error: incErr } = await supabase.rpc('increment_views', { row_id: cleanId });
-          if (incErr) console.warn('increment_views error:', incErr.message);
-        }
-      }
+      if (error) setError(error.message);
+      else setData(data);
     };
 
     const fetchFeedback = async () => {
@@ -309,14 +241,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
 
     const logScan = async () => {
-      const { error: insErr } = await supabase.from('scans').insert([{ tag_id: cleanId }]);
-      if (insErr) console.warn('scan insert error:', insErr.message);
-
-      const { count, error: cntErr } = await supabase
+      await supabase.from('scans').insert([{ tag_id: cleanId }]);
+      const { count } = await supabase
         .from('scans')
         .select('*', { count: 'exact', head: true })
         .eq('tag_id', cleanId);
-      if (!cntErr) setScanCount(count || 0);
+      setScanCount(count || 0);
     };
 
     fetchTag();
@@ -325,65 +255,59 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     logScan();
   }, [cleanId, supabase]);
 
-  // ---------- Analytics events ----------
+  // ---------- Analytics ----------
   useEffect(() => {
-    logEvent('view_tag', { tag_id: cleanId }).catch(() => {});
+    logEvent('view_tag', { tag_id: cleanId });
   }, [cleanId]);
 
   useEffect(() => {
     if (!impressionSent.current) {
-      logEvent('cta_impression', {
-        tag_id: cleanId,
-        experiment_id: EXP_ID,
-        variant
-      }).catch(() => {});
+      logEvent('cta_impression', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       impressionSent.current = true;
     }
   }, [cleanId, variant]);
 
-  const isOwner = userId && data?.user_id && userId === data.user_id;
+  useEffect(() => {
+    const ch = getChannelFromQuery();
+    if (!ch) return;
+    const key = `omninet_so_${cleanId}_${ch}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, '1');
+    logEvent('share_open', { tag_id: cleanId, channel: ch, referrer: document.referrer || undefined });
+  }, [cleanId]);
 
+  const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
-  // ts-expect-error server/client boundary – used only in client
   const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />;
 
-  // Stripe checkout
+  // ---------- CTA + payments ----------
   async function startCheckout(id: string, amountCents = 500) {
     try {
-      const refCode =
-        (typeof window !== 'undefined' && localStorage.getItem('referral_code')) || '';
+      const refCode = localStorage.getItem('referral_code') || '';
+      // ✅ Pull current channel (if this visit came from a share), default to 'direct'
+      const ch =
+        new URLSearchParams(window.location.search).get('ch') ||
+        'direct';
 
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents }),
+        // ✅ Include channel so API can echo it into success_url & metadata
+        body: JSON.stringify({ tagId: id, refCode, amountCents, channel: ch }),
       });
-
-      const { url, error } = await res.json();
-      if (error) {
-        console.error(error);
-        toast.error('❌ Failed to create Stripe session');
-        return;
-      }
-      if (url) {
-        window.location.href = url;
-      } else {
-        toast.error('❌ No checkout URL returned');
-      }
-    } catch (e) {
-      console.error(e);
+      const { url } = await res.json();
+      if (url) window.location.href = url;
+      else toast.error('❌ Checkout failed');
+    } catch {
       toast.error('❌ Could not start checkout');
     }
   }
 
-  // ---------- CTA click handlers ----------
   const onPrimaryCTAClick = async () => {
     await logEvent('cta_click', { tag_id: cleanId, experiment_id: EXP_ID, variant });
-
     if (variant === 'A') {
       await logEvent('booking_start', { tag_id: cleanId });
-      const el = document.getElementById('booking-section');
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
     } else {
       await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       startCheckout(cleanId, 500);
@@ -391,10 +315,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   };
 
   const onSupportClick = async () => {
-    await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant: variant ?? null });
+    await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
     startCheckout(cleanId, 500);
   };
 
+  // ---------- Share handlers ----------
   const handleDownload = async () => {
     if (!qrRef.current) return;
     const dataUrl = await toPng(qrRef.current);
@@ -405,31 +330,53 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     toast.success('📥 QR code downloaded!');
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(tagUrl);
-    toast.success('🔗 Link copied to clipboard!');
+  const handleCopyLink = async () => {
+    const url = buildShareUrl(baseTagUrl, 'copy');
+    const text = `Check out this local service on OmniNet\n${data?.title || ''}\n${url}`;
+    await navigator.clipboard.writeText(text);
+    toast.success('🔗 Link copied!');
+    await logEvent('share_click', { tag_id: cleanId, channel: 'copy' });
   };
 
   const handleShare = async () => {
+    const url = buildShareUrl(baseTagUrl, 'system');
     try {
-      const title = typeof document !== 'undefined' ? document.title : 'OmniNet Tag';
-      const url = typeof window !== 'undefined' ? window.location.href : tagUrl;
-      const shareData = { title, url };
-
-      if (typeof navigator !== 'undefined' && 'share' in navigator && (navigator as any).share) {
-        try {
-          await (navigator as any).share(shareData);
-          return;
-        } catch {
-          return;
-        }
+      const shareData = { title: data?.title || 'OmniNet Tag', text: data?.title, url };
+      if ((navigator as any).share) {
+        await (navigator as any).share(shareData);
+        await logEvent('share_click', { tag_id: cleanId, channel: 'system' });
+        return;
       }
-
-      await navigator.clipboard.writeText(shareData.url);
-      toast.success('🔗 Link copied to clipboard!');
+      await navigator.clipboard.writeText(url);
+      toast.success('🔗 Link copied!');
+      await logEvent('share_click', { tag_id: cleanId, channel: 'system' });
     } catch {
       toast.error('❌ Could not share right now');
     }
+  };
+
+  const handleWhatsApp = async () => {
+    const url = buildShareUrl(baseTagUrl, 'whatsapp');
+    const wa = `https://wa.me/?text=${encodeURIComponent(`Check this out: ${url}`)}`;
+    await logEvent('share_click', { tag_id: cleanId, channel: 'whatsapp' });
+    window.open(wa, '_blank');
+  };
+
+  const handleSMS = async () => {
+    const url = buildShareUrl(baseTagUrl, 'sms');
+    const smsUrl = `sms:?&body=${encodeURIComponent(`Check this out: ${url}`)}`;
+    await logEvent('share_click', { tag_id: cleanId, channel: 'sms' });
+    window.location.href = smsUrl;
+  };
+
+  // ---------- Feedback handlers ----------
+  const handleDeleteFeedback = async (id: string) => {
+    if (!confirm('Are you sure you want to hide this comment?')) return;
+    const { error } = await supabase.from('feedback').update({ hidden: true }).eq('id', id);
+    if (!error) {
+      setFeedback((prev) => prev.filter((f) => f.id !== id));
+      toast.success('🗑 Feedback hidden');
+    } else toast.error('❌ Failed to hide feedback');
   };
 
   const handleSubmitFeedback = async (e: React.FormEvent) => {
@@ -439,12 +386,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       return;
     }
     const { error } = await supabase.from('feedback').insert([
-      {
-        tag_id: cleanId,
-        name: name || 'Anonymous',
-        message,
-        rating,
-      },
+      { tag_id: cleanId, name: name || 'Anonymous', message, rating },
     ]);
     if (!error) {
       setName('');
@@ -458,77 +400,44 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         .order('created_at', { ascending: false });
       setFeedback(data || []);
       toast.success('✅ Feedback submitted!');
-    } else {
-      toast.error('❌ Failed to submit feedback');
-    }
+    } else toast.error('❌ Failed to submit feedback');
   };
 
-  const handleDeleteFeedback = async (id: string) => {
-    if (!confirm('Are you sure you want to hide this comment?')) return;
-    const { error } = await supabase.from('feedback').update({ hidden: true }).eq('id', id);
-    if (!error) {
-      setFeedback((prev) => prev.filter((f) => f.id !== id));
-      toast.success('🗑 Feedback hidden');
-    } else {
-      toast.error('❌ Failed to hide feedback');
-    }
-  };
-
-  const getCategoryBadge = (category: string) => {
-    const base = 'inline-block px-3 py-1 rounded-full text-xs font-medium';
-    switch (category) {
-      case 'rent':
-        return `${base} bg-blue-100 text-blue-800`;
-      case 'sell':
-        return `${base} bg-green-100 text-green-800`;
-      case 'teach':
-        return `${base} bg-yellow-100 text-yellow-800`;
-      case 'help':
-        return `${base} bg-purple-100 text-purple-800`;
-      default:
-        return `${base} bg-gray-100 text-gray-800`;
-    }
-  };
-
-  const getCategoryEmoji = (category: string) => {
-    switch (category) {
-      case 'rent':
-        return '🪜';
-      case 'sell':
-        return '🛒';
-      case 'teach':
-        return '🎓';
-      case 'help':
-        return '🤝';
-      default:
-        return '';
-    }
-  };
-
+  // ---------- UI ----------
   const averageRating = feedback.length
-    ? (feedback.reduce((sum, f) => sum + (f.rating || 0), 0) / feedback.length).toFixed(1)
+    ? (feedback.reduce((s, f) => s + (f.rating || 0), 0) / feedback.length).toFixed(1)
     : null;
 
-  if (error || !data) {
+  if (error || !data)
     return (
       <div className="p-10 text-center text-red-600">
         <h1 className="text-2xl font-bold">Tag Not Found</h1>
         <p>ID: {cleanId}</p>
       </div>
     );
-  }
+
+  const getBadge = (cat: string) =>
+    ({
+      rent: 'bg-blue-100 text-blue-800',
+      sell: 'bg-green-100 text-green-800',
+      teach: 'bg-yellow-100 text-yellow-800',
+      help: 'bg-purple-100 text-purple-800',
+    }[cat] || 'bg-gray-100 text-gray-800');
+
+  const getEmoji = (cat: string) =>
+    ({ rent: '🪜', sell: '🛒', teach: '🎓', help: '🤝' }[cat] || '');
+
+  const tagUrlWithCopyChannel = buildShareUrl(baseTagUrl, 'copy');
 
   return (
     <div className="p-10 text-center">
       <Toaster position="top-center" />
       <A2HSNudge />
-      {/* Process accept/decline from email (owner only) */}
       {EmailAction}
       <BackButton />
 
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
 
-      {/* Owner toggle for bookings */}
       {isOwner && (
         <div className="my-2">
           <OwnerBookingToggle
@@ -543,22 +452,19 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       <p className="text-gray-600 mb-2">{data.description}</p>
 
       <Link href={`/category/${data.category}`}>
-        <span className={getCategoryBadge(data.category)}>
-          {getCategoryEmoji(data.category)} {data.category}
+        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getBadge(data.category)}`}>
+          {getEmoji(data.category)} {data.category}
         </span>
       </Link>
 
       <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
       <p className="text-xs text-gray-500 mb-1">🔢 {scanCount} scans</p>
 
-      {typeof data.views === 'number' && (
-        <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>
-      )}
+      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>}
 
-      {/* ===== Primary CTA block (A/B) ===== */}
+      {/* ===== Primary CTA ===== */}
       <div className="my-4 flex justify-center">
         <button
-          id="cta-main"
           onClick={onPrimaryCTAClick}
           className="h-12 px-6 rounded-2xl text-white bg-black hover:bg-gray-800 transition text-sm"
         >
@@ -568,7 +474,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <div className="flex flex-col items-center gap-3 mb-8">
         <div ref={qrRef} className="bg-white p-3 rounded shadow">
-          <QRCode value={tagUrl} size={160} level="H" />
+          <QRCode value={tagUrlWithCopyChannel} size={160} level="H" />
         </div>
 
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
@@ -595,6 +501,20 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             📣 Share
           </button>
 
+          <button
+            onClick={handleWhatsApp}
+            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
+          >
+            💬 WhatsApp
+          </button>
+
+          <button
+            onClick={handleSMS}
+            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
+          >
+            ✉️ SMS
+          </button>
+
           <Link
             href={`/tag/${encodeURIComponent(cleanId)}/print`}
             target="_blank"
@@ -605,7 +525,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           </Link>
 
           <button
-            id="support-tag"
             onClick={onSupportClick}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
           >
@@ -692,3 +611,4 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
+

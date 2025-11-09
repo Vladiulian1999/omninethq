@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import { BackButton } from "@/components/BackButton";
+import { logEvent } from "@/lib/analytics"; // ✅ use shared analytics logger
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,9 +45,11 @@ const VARIANTS: Record<VariantKey, { title: string; body: (tagTitle?: string|nul
 export default function SuccessClient({
   sessionId,
   tagFromQS,
+  chFromQS, // ✅ channel from /success?ch=...
 }: {
   sessionId: string;
   tagFromQS?: string;
+  chFromQS?: string;
 }) {
   const [info, setInfo] = useState<SuccessInfo | null>(null);
   const [tagTitle, setTagTitle] = useState<string | null>(null);
@@ -139,7 +142,7 @@ export default function SuccessClient({
     return tagIdClean ? `${origin}/tag/${tagIdClean}` : `${origin}/explore`;
   }, [tagIdClean, origin]);
 
-  // --- analytics helpers ---
+  // --- analytics helpers (success page specific) ---
   const track = async (event_type: string, extra?: Record<string, any>) => {
     try {
       await fetch("/api/track", {
@@ -158,7 +161,28 @@ export default function SuccessClient({
     } catch {}
   };
 
-  // impression fire once
+  // ✅ Log checkout_success exactly once per Stripe session
+  useEffect(() => {
+    if (!tagIdClean || !sessionId) return;
+    const key = `omninet_cs_${sessionId}`;
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(key)) return;
+
+    const ch = (chFromQS || "direct").toString();
+    (async () => {
+      try {
+        await logEvent('checkout_success' as any, {
+          tag_id: tagIdClean,
+          channel: ch,
+        });
+        localStorage.setItem(key, '1');
+      } catch {
+        // swallow errors
+      }
+    })();
+  }, [tagIdClean, sessionId, chFromQS]);
+
+  // impression fire once for success page CTA block
   useEffect(() => {
     if (!loading) {
       track("success_cta_impression");
@@ -299,3 +323,4 @@ export default function SuccessClient({
     </div>
   );
 }
+

@@ -8,7 +8,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11
 
 export async function POST(req: NextRequest) {
   try {
-    const { tagId, refCode, amountCents } = await req.json();
+    const { tagId, refCode, amountCents, channel: channelBody } = await req.json();
 
     if (!tagId || typeof tagId !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid tagId' }, { status: 400 });
@@ -20,6 +20,11 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SITE_URL ||
       req.headers.get('origin') ||
       'https://omninethq.co.uk';
+
+    // Derive channel from body or request URL (?ch=...)
+    const ch = (channelBody ||
+      req.nextUrl.searchParams.get('ch') ||
+      'direct') as string;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -34,14 +39,15 @@ export async function POST(req: NextRequest) {
           quantity: 1,
         },
       ],
+      // include tag and channel back to success page
       success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}&tag=${encodeURIComponent(
         tagId
-      )}`,
+      )}&ch=${encodeURIComponent(ch)}`,
       cancel_url: `${origin}/cancel?status=canceled`,
-      // 👇 CRITICAL: add tagId + refCode to metadata
       metadata: {
         tagId,
         refCode: (refCode || '').toString(),
+        channel: ch, // <- helpful for webhooks/server analytics too
       },
     });
 
