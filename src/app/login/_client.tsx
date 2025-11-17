@@ -1,17 +1,19 @@
 'use client';
 
+// Email + Password login (Sign in / Sign up / Reset), browser-only.
 import { useMemo, useState } from 'react';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
-import Link from 'next/link';
+
+type Mode = 'signin' | 'signup' | 'reset';
 
 export default function LoginClient({ next }: { next: string }) {
-  const sb = useMemo(() => getSupabaseBrowser(), []);
-  const [mode, setMode] = useState<'signin'|'signup'|'reset'>('signin');
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
+  const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const goNext = () => {
     if (typeof window !== 'undefined') window.location.href = next || '/explore';
@@ -19,76 +21,100 @@ export default function LoginClient({ next }: { next: string }) {
 
   const onSignin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setErr(null); setMsg(null);
-    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
-    setLoading(false);
-    if (error) { setErr(error.message); return; }
-    goNext();
+    setErr(null); setMsg(null); setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) return setErr(error.message);
+      goNext();
+    } catch (e: any) {
+      setErr(e?.message || 'Sign in failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setErr(null); setMsg(null);
-    const { error } = await sb.auth.signUp({ email: email.trim(), password });
-    setLoading(false);
-    if (error) { setErr(error.message); return; }
-    setMsg('Account created. Check your email to confirm (if required), then sign in.');
-    setMode('signin');
+    setErr(null); setMsg(null); setLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (error) return setErr(error.message);
+      setMsg('Account created. Check your email to confirm (if required), then sign in.');
+      setMode('signin');
+    } catch (e: any) {
+      setErr(e?.message || 'Sign up failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setErr(null); setMsg(null);
-    const redirectTo = typeof window !== 'undefined'
-      ? `${window.location.origin}/login?next=${encodeURIComponent(next)}`
-      : undefined;
-    const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-    setLoading(false);
-    if (error) { setErr(error.message); return; }
-    setMsg('Password reset email sent. Check your inbox.');
-    setMode('signin');
+    setErr(null); setMsg(null); setLoading(true);
+    try {
+      const redirectTo =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/login?next=${encodeURIComponent(next)}`
+          : undefined;
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      if (error) return setErr(error.message);
+      setMsg('Password reset email sent. Check your inbox.');
+      setMode('signin');
+    } catch (e: any) {
+      setErr(e?.message || 'Reset failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const submit = mode === 'signin' ? onSignin : mode === 'signup' ? onSignup : onReset;
+
   return (
-    <div className="max-w-md mx-auto p-8">
-      <h1 className="text-2xl font-semibold mb-2">Sign {mode === 'signup' ? 'up' : mode === 'reset' ? 'in (reset)' : 'in'}</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        {mode === 'signup'
+    <div className="p-8 max-w-md mx-auto">
+      <h1 className="text-2xl font-semibold mb-2">
+        {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Reset password'}
+      </h1>
+      <p className="text-sm text-gray-600 mb-6">
+        {mode === 'signin'
+          ? 'Use your email and password to sign in.'
+          : mode === 'signup'
           ? 'Create an account with email and password.'
-          : mode === 'reset'
-          ? 'Enter your email to receive a password reset link.'
-          : 'Use your email and password to sign in.'}
+          : 'Enter your email and we’ll send a reset link.'}
       </p>
 
       {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
       {msg && <div className="mb-3 text-sm text-green-700">{msg}</div>}
 
-      <form onSubmit={mode === 'signin' ? onSignin : mode === 'signup' ? onSignup : onReset} className="space-y-3">
+      <form onSubmit={submit} className="space-y-3">
         <input
           type="email"
-          className="w-full border rounded px-3 py-2"
+          required
           placeholder="you@example.com"
+          className="w-full border rounded-xl px-3 py-2"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          required
         />
-
         {mode !== 'reset' && (
           <input
             type="password"
-            className="w-full border rounded px-3 py-2"
+            required
+            minLength={6}
             placeholder="Password"
+            className="w-full border rounded-xl px-3 py-2"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            minLength={6}
-            required
           />
         )}
-
         <button
           type="submit"
           disabled={loading}
-          className="w-full border rounded-xl px-4 py-2 hover:bg-gray-50"
+          className="w-full rounded-xl px-4 py-2 border hover:bg-gray-50 disabled:opacity-60"
         >
           {loading
             ? 'Please wait…'
@@ -113,11 +139,9 @@ export default function LoginClient({ next }: { next: string }) {
         )}
       </div>
 
-      <div className="mt-6 text-xs text-gray-500">
-        By continuing you agree to our{' '}
-        <Link href="/terms" className="underline">Terms</Link> and{' '}
-        <Link href="/privacy" className="underline">Privacy Policy</Link>.
-      </div>
+      <p className="mt-6 text-xs text-gray-500">
+        After signing in you’ll be redirected to <span className="font-mono">{next}</span>.
+      </p>
     </div>
   );
 }
