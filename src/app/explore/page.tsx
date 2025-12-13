@@ -16,28 +16,31 @@ type Tag = {
   created_at: string;
 };
 
+function getEnv(name: string) {
+  const v = process.env[name];
+  return v && v.trim().length ? v : undefined;
+}
+
 export default async function ExplorePage() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url =
+    getEnv("SUPABASE_URL") ?? getEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anon =
+    getEnv("SUPABASE_ANON_KEY") ?? getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   if (!url || !anon) {
     return (
       <div className="p-6 text-red-600">
-        Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL and
-        NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local (and restart dev server).
+        Missing Supabase env vars. Check .env.local / Vercel env.
       </div>
     );
   }
 
-  const supabase = createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const supabase = createClient(url, anon);
 
   const { data, error } = await supabase
     .from("messages")
     .select("id,title,description,category,views,featured,hidden,created_at")
-    // treat NULL as not hidden too
-    .or("hidden.is.null,hidden.eq.false")
+    .eq("hidden", false)
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -64,9 +67,8 @@ export default async function ExplorePage() {
               <Link
                 href={`/tag/${encodeURIComponent(t.id)}`}
                 className="font-semibold hover:underline"
-                prefetch={false}
               >
-                {t.title || "Untitled"}
+                {t.title || t.id}
               </Link>
 
               {t.description ? (
@@ -76,9 +78,8 @@ export default async function ExplorePage() {
               ) : null}
 
               <div className="text-xs text-gray-500 mt-2">
-                {(t.category || "uncategorized") +
-                  " • " +
-                  new Date(t.created_at).toLocaleDateString()}
+                {(t.category ?? "uncategorized")} •{" "}
+                {new Date(t.created_at).toLocaleDateString()}
               </div>
             </li>
           ))}
