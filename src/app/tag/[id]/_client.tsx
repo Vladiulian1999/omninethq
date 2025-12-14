@@ -182,6 +182,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
         router.replace(url.pathname, { scroll: false });
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp, ownerId]);
 
   return null;
@@ -189,9 +190,18 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
+
+  // ✅ DO NOT decode here. Server already resolves/passes the real id.
+  const cleanId = useMemo(() => String(tagId || '').trim(), [tagId]);
+
+  const invalidId = useMemo(
+    () => !cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null',
+    [cleanId]
+  );
+
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId), [cleanId]);
   const impressionSent = useRef(false);
+
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
   const baseTagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
@@ -207,14 +217,15 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const qrRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  // ---------- Basic guard ----------
+  useEffect(() => {
+    if (invalidId) router.replace('/explore');
+  }, [invalidId, router]);
+
   // ---------- Basic data ----------
   useEffect(() => {
-    if (!cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null') {
-      router.replace('/explore');
-    }
-  }, [cleanId, router]);
+    if (invalidId) return;
 
-  useEffect(() => {
     const fetchTag = async () => {
       const { data, error } = await supabase
         .from('messages')
@@ -253,28 +264,31 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     fetchFeedback();
     getUser();
     logScan();
-  }, [cleanId, supabase]);
+  }, [invalidId, cleanId, supabase]);
 
   // ---------- Analytics ----------
   useEffect(() => {
+    if (invalidId) return;
     logEvent('view_tag', { tag_id: cleanId });
-  }, [cleanId]);
+  }, [invalidId, cleanId]);
 
   useEffect(() => {
+    if (invalidId) return;
     if (!impressionSent.current) {
       logEvent('cta_impression', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       impressionSent.current = true;
     }
-  }, [cleanId, variant]);
+  }, [invalidId, cleanId, variant]);
 
   useEffect(() => {
+    if (invalidId) return;
     const ch = getChannelFromQuery();
     if (!ch) return;
     const key = `omninet_so_${cleanId}_${ch}`;
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, '1');
     logEvent('share_open', { tag_id: cleanId, channel: ch, referrer: document.referrer || undefined });
-  }, [cleanId]);
+  }, [invalidId, cleanId]);
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
@@ -284,17 +298,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   async function startCheckout(id: string, amountCents = 500) {
     try {
       const refCode = localStorage.getItem('referral_code') || '';
-      // ✅ Pull current channel (if this visit came from a share), default to 'direct'
-      const ch =
-        new URLSearchParams(window.location.search).get('ch') ||
-        'direct';
+      const ch = new URLSearchParams(window.location.search).get('ch') || 'direct';
 
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // ✅ Include channel so API can echo it into success_url & metadata
         body: JSON.stringify({ tagId: id, refCode, amountCents, channel: ch }),
       });
+
       const { url } = await res.json();
       if (url) window.location.href = url;
       else toast.error('❌ Checkout failed');
@@ -407,6 +418,15 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const averageRating = feedback.length
     ? (feedback.reduce((s, f) => s + (f.rating || 0), 0) / feedback.length).toFixed(1)
     : null;
+
+  if (invalidId) {
+    return (
+      <div className="p-10 text-center text-red-600">
+        <h1 className="text-2xl font-bold">Invalid Tag</h1>
+        <p>ID: {cleanId}</p>
+      </div>
+    );
+  }
 
   if (error || !data)
     return (
@@ -611,4 +631,3 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
-
