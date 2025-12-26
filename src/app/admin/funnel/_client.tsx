@@ -20,6 +20,15 @@ type FunnelRow = {
   last_event_at: string | null;
 };
 
+type BestChannelRow = {
+  tag_id: string;
+  channel: string | null;
+  checkout_successes: number | null;
+  share_to_success_pct: number | null;
+  view_to_success_pct: number | null;
+  last_event_at: string | null;
+};
+
 type TagTitleRow = {
   id: string;
   title: string | null;
@@ -29,6 +38,11 @@ type TagTitleRow = {
 type DisplayRow = FunnelRow & {
   title?: string | null;
   category?: string | null;
+
+  winner_channel?: string | null;
+  winner_successes?: number | null;
+  winner_share_to_success_pct?: number | null;
+  winner_view_to_success_pct?: number | null;
 };
 
 function fmtPct(n: number | null | undefined) {
@@ -45,6 +59,16 @@ function friendlyChannel(ch: string | null | undefined) {
   const v = (ch || 'direct').toLowerCase();
   if (v === 'system') return 'share';
   return v;
+}
+
+function winnerBadge(ch?: string | null) {
+  const c = (ch || '').toLowerCase();
+  if (!c) return null;
+
+  const base = 'inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs';
+  const label = c === 'system' ? 'share' : c;
+
+  return <span className={base}>🏆 {label}</span>;
 }
 
 export default function FunnelClient() {
@@ -83,9 +107,7 @@ export default function FunnelClient() {
       // Try 7d view if selected; if it doesn't exist, fall back to 30d.
       const viewName = windowKey === '7d' ? 'tag_funnel_7d' : 'tag_funnel_30d';
 
-      const { data: funnelData, error: funnelErr } = await supabase
-        .from(viewName)
-        .select('*');
+      const { data: funnelData, error: funnelErr } = await supabase.from(viewName).select('*');
 
       if (funnelErr) {
         // If 7d doesn't exist, fall back silently to 30d
@@ -110,6 +132,20 @@ export default function FunnelClient() {
 
       const funnelRows = (funnelData || []) as FunnelRow[];
 
+      // Fetch winners (one row per tag) from view
+      const { data: winnersData, error: winErr } = await supabase
+        .from('tag_best_channel_30d')
+        .select('*');
+
+      if (winErr) {
+        console.warn('winner view error:', winErr.message);
+      }
+
+      const winnerMap = new Map<string, BestChannelRow>();
+      (winnersData as any[] | null)?.forEach((w) => {
+        if (w?.tag_id) winnerMap.set(w.tag_id, w as BestChannelRow);
+      });
+
       // Get unique tag ids and fetch titles/categories
       const tagIds = Array.from(
         new Set(
@@ -119,7 +155,7 @@ export default function FunnelClient() {
         )
       );
 
-      let titleMap = new Map<string, TagTitleRow>();
+      const titleMap = new Map<string, TagTitleRow>();
 
       if (tagIds.length) {
         const { data: tags, error: tagsErr } = await supabase
@@ -138,16 +174,27 @@ export default function FunnelClient() {
 
       const merged: DisplayRow[] = funnelRows.map((r) => {
         const t = titleMap.get(r.tag_id);
+        const w = winnerMap.get(r.tag_id);
+
         return {
           ...r,
           title: t?.title ?? null,
           category: t?.category ?? null,
           channel: friendlyChannel(r.channel),
+
+          winner_channel: w?.channel ? friendlyChannel(w.channel) : null,
+          winner_successes: w?.checkout_successes ?? null,
+          winner_share_to_success_pct: w?.share_to_success_pct ?? null,
+          winner_view_to_success_pct: w?.view_to_success_pct ?? null,
         };
       });
 
-      // Sort: most checkout_successes first, then starts, then views
+      // Sort winners first, then by successes → starts → views
       merged.sort((a, b) => {
+        const aHasW = a.winner_successes && a.winner_successes > 0 ? 1 : 0;
+        const bHasW = b.winner_successes && b.winner_successes > 0 ? 1 : 0;
+        if (bHasW !== aHasW) return bHasW - aHasW;
+
         const aS = fmtNum(a.checkout_successes);
         const bS = fmtNum(b.checkout_successes);
         if (bS !== aS) return bS - aS;
@@ -179,7 +226,8 @@ export default function FunnelClient() {
       const id = (r.tag_id || '').toLowerCase();
       const ch = (r.channel || '').toLowerCase();
       const cat = (r.category || '').toLowerCase();
-      return t.includes(q) || id.includes(q) || ch.includes(q) || cat.includes(q);
+      const win = (r.winner_channel || '').toLowerCase();
+      return t.includes(q) || id.includes(q) || ch.includes(q) || cat.includes(q) || win.includes(q);
     });
   }, [rows, query]);
 
@@ -222,10 +270,7 @@ export default function FunnelClient() {
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          <Link
-            href="/explore"
-            className="px-3 py-2 rounded-xl border text-sm hover:bg-gray-50"
-          >
+          <Link href="/explore" className="px-3 py-2 rounded-xl border text-sm hover:bg-gray-50">
             Back to Explore
           </Link>
         </div>
@@ -233,20 +278,17 @@ export default function FunnelClient() {
 
       <div className="mt-6 rounded-2xl border bg-white overflow-hidden">
         <div className="px-4 py-3 border-b text-sm text-gray-600 flex items-center justify-between">
-          <span>
-            {loading ? 'Loading…' : `${filtered.length} rows`}
-          </span>
-          <span className="text-xs text-gray-400">
-            Sorted by successes → starts → views
-          </span>
+          <span>{loading ? 'Loading…' : `${filtered.length} rows`}</span>
+          <span className="text-xs text-gray-400">Sorted by winners → successes → starts → views</span>
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[980px] w-full text-sm">
+          <table className="min-w-[1120px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-700">
               <tr className="text-left">
                 <th className="px-4 py-3">Tag</th>
                 <th className="px-4 py-3">Channel</th>
+                <th className="px-4 py-3">Winner</th>
                 <th className="px-4 py-3">Views</th>
                 <th className="px-4 py-3">Share clicks</th>
                 <th className="px-4 py-3">Checkout starts</th>
@@ -260,7 +302,7 @@ export default function FunnelClient() {
             <tbody>
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
                     No funnel data yet. Generate traffic + donations, then refresh.
                   </td>
                 </tr>
@@ -269,9 +311,7 @@ export default function FunnelClient() {
               {filtered.map((r, idx) => (
                 <tr key={`${r.tag_id}:${r.channel}:${idx}`} className="border-t">
                   <td className="px-4 py-3">
-                    <div className="font-medium">
-                      {r.title || 'Untitled tag'}
-                    </div>
+                    <div className="font-medium">{r.title || 'Untitled tag'}</div>
                     <div className="text-xs text-gray-500">
                       {r.tag_id} {r.category ? `• ${r.category}` : ''}
                     </div>
@@ -283,11 +323,23 @@ export default function FunnelClient() {
                     </span>
                   </td>
 
+                  <td className="px-4 py-3">
+                    {r.winner_channel ? (
+                      <div className="flex flex-col gap-1">
+                        {winnerBadge(r.winner_channel)}
+                        <div className="text-xs text-gray-500">
+                          {fmtNum(r.winner_successes)} success • {fmtPct(r.winner_share_to_success_pct)} share→success
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </td>
+
                   <td className="px-4 py-3">{fmtNum(r.views)}</td>
                   <td className="px-4 py-3">{fmtNum(r.share_clicks)}</td>
                   <td className="px-4 py-3">{fmtNum(r.checkout_starts)}</td>
                   <td className="px-4 py-3 font-semibold">{fmtNum(r.checkout_successes)}</td>
-
                   <td className="px-4 py-3">{fmtPct(r.view_to_success_pct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.share_to_success_pct)}</td>
 
@@ -308,10 +360,10 @@ export default function FunnelClient() {
         </div>
 
         <div className="px-4 py-3 border-t text-xs text-gray-500">
-          If numbers look wrong, your bottleneck is almost always: missing `checkout_success` server event (webhook),
-          or client `/api/track` rejecting payload shape.
+          Winner is computed from <span className="font-mono">tag_best_channel_30d</span> (only tags with successes).
         </div>
       </div>
     </div>
   );
 }
+
