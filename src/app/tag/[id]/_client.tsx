@@ -65,7 +65,28 @@ function assignVariant(experimentId: string, tagId: string, variants = VARIANTS)
 }
 
 // --- Channel helpers ---
-function buildShareUrl(baseUrl: string, channel: 'whatsapp' | 'sms' | 'copy' | 'system') {
+type ShareChannel = 'whatsapp' | 'sms' | 'copy' | 'system';
+
+function normalizeWinnerChannel(ch: string | null | undefined): ShareChannel | null {
+  const v = (ch || '').toLowerCase().trim();
+  if (!v) return null;
+  if (v === 'share') return 'system';
+  if (v === 'system') return 'system';
+  if (v === 'whatsapp') return 'whatsapp';
+  if (v === 'sms') return 'sms';
+  if (v === 'copy') return 'copy';
+  if (v === 'direct') return null;
+  return null;
+}
+
+function labelForChannel(ch: ShareChannel) {
+  if (ch === 'system') return 'Share';
+  if (ch === 'whatsapp') return 'WhatsApp';
+  if (ch === 'sms') return 'SMS';
+  return 'Copy';
+}
+
+function buildShareUrl(baseUrl: string, channel: ShareChannel) {
   const url = new URL(baseUrl);
   url.searchParams.set('ch', channel);
   const rid = localStorage.getItem('referral_code');
@@ -182,23 +203,14 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
         router.replace(url.pathname, { scroll: false });
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sp, ownerId]);
+  }, [sp, ownerId, router, supabase]);
 
   return null;
 }
 
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
-
-  // ✅ DO NOT decode here. Server already resolves/passes the real id.
-  const cleanId = useMemo(() => String(tagId || '').trim(), [tagId]);
-
-  const invalidId = useMemo(
-    () => !cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null',
-    [cleanId]
-  );
-
+  const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId), [cleanId]);
   const impressionSent = useRef(false);
 
@@ -217,15 +229,17 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const qrRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // ---------- Basic guard ----------
-  useEffect(() => {
-    if (invalidId) router.replace('/explore');
-  }, [invalidId, router]);
+  // Winner channel state
+  const [winnerChannel, setWinnerChannel] = useState<ShareChannel | null>(null);
 
   // ---------- Basic data ----------
   useEffect(() => {
-    if (invalidId) return;
+    if (!cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null') {
+      router.replace('/explore');
+    }
+  }, [cleanId, router]);
 
+  useEffect(() => {
     const fetchTag = async () => {
       const { data, error } = await supabase
         .from('messages')
@@ -264,31 +278,65 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     fetchFeedback();
     getUser();
     logScan();
-  }, [invalidId, cleanId, supabase]);
+  }, [cleanId, supabase]);
+
+  // ---------- Winner channel fetch ----------
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        // Winner view returns 1 row per tag_id (only when successes exist)
+        const { data: win, error: winErr } = await supabase
+          .from('tag_best_channel_30d')
+          .select('channel')
+          .eq('tag_id', cleanId)
+          .maybeSingle();
+
+        if (!mounted) return;
+        if (winErr) {
+          console.warn('winner lookup error:', winErr.message);
+          setWinnerChannel(null);
+          return;
+        }
+
+        const ch = normalizeWinnerChannel((win as any)?.channel ?? null);
+        setWinnerChannel(ch);
+      } catch (e) {
+        console.warn('winner lookup failed', e);
+        if (mounted) setWinnerChannel(null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [cleanId, supabase]);
 
   // ---------- Analytics ----------
   useEffect(() => {
-    if (invalidId) return;
     logEvent('view_tag', { tag_id: cleanId });
-  }, [invalidId, cleanId]);
+  }, [cleanId]);
 
   useEffect(() => {
-    if (invalidId) return;
     if (!impressionSent.current) {
       logEvent('cta_impression', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       impressionSent.current = true;
     }
-  }, [invalidId, cleanId, variant]);
+  }, [cleanId, variant]);
 
   useEffect(() => {
-    if (invalidId) return;
     const ch = getChannelFromQuery();
     if (!ch) return;
     const key = `omninet_so_${cleanId}_${ch}`;
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, '1');
-    logEvent('share_open', { tag_id: cleanId, channel: ch, referrer: document.referrer || undefined });
-  }, [invalidId, cleanId]);
+    logEvent('share_open' as any, {
+      tag_id: cleanId,
+      channel: ch,
+      referrer: typeof document !== 'undefined' ? document.referrer : undefined,
+    });
+  }, [cleanId]);
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
@@ -298,14 +346,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   async function startCheckout(id: string, amountCents = 500) {
     try {
       const refCode = localStorage.getItem('referral_code') || '';
-      const ch = new URLSearchParams(window.location.search).get('ch') || 'direct';
-
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents, channel: ch }),
+        body: JSON.stringify({ tagId: id, refCode, amountCents }),
       });
-
       const { url } = await res.json();
       if (url) window.location.href = url;
       else toast.error('❌ Checkout failed');
@@ -343,10 +388,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const handleCopyLink = async () => {
     const url = buildShareUrl(baseTagUrl, 'copy');
-    const text = `Check out this local service on OmniNet\n${data?.title || ''}\n${url}`;
+    const text = `Check this out on OmniNet:\n${data?.title || ''}\n${url}`;
     await navigator.clipboard.writeText(text);
     toast.success('🔗 Link copied!');
-    await logEvent('share_click', { tag_id: cleanId, channel: 'copy' });
+    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'copy' });
   };
 
   const handleShare = async () => {
@@ -355,12 +400,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const shareData = { title: data?.title || 'OmniNet Tag', text: data?.title, url };
       if ((navigator as any).share) {
         await (navigator as any).share(shareData);
-        await logEvent('share_click', { tag_id: cleanId, channel: 'system' });
+        await logEvent('share_click' as any, { tag_id: cleanId, channel: 'system' });
         return;
       }
       await navigator.clipboard.writeText(url);
       toast.success('🔗 Link copied!');
-      await logEvent('share_click', { tag_id: cleanId, channel: 'system' });
+      await logEvent('share_click' as any, { tag_id: cleanId, channel: 'system' });
     } catch {
       toast.error('❌ Could not share right now');
     }
@@ -369,15 +414,22 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const handleWhatsApp = async () => {
     const url = buildShareUrl(baseTagUrl, 'whatsapp');
     const wa = `https://wa.me/?text=${encodeURIComponent(`Check this out: ${url}`)}`;
-    await logEvent('share_click', { tag_id: cleanId, channel: 'whatsapp' });
+    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'whatsapp' });
     window.open(wa, '_blank');
   };
 
   const handleSMS = async () => {
     const url = buildShareUrl(baseTagUrl, 'sms');
     const smsUrl = `sms:?&body=${encodeURIComponent(`Check this out: ${url}`)}`;
-    await logEvent('share_click', { tag_id: cleanId, channel: 'sms' });
+    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'sms' });
     window.location.href = smsUrl;
+  };
+
+  const onShareByChannel = async (ch: ShareChannel) => {
+    if (ch === 'whatsapp') return handleWhatsApp();
+    if (ch === 'sms') return handleSMS();
+    if (ch === 'copy') return handleCopyLink();
+    return handleShare();
   };
 
   // ---------- Feedback handlers ----------
@@ -419,15 +471,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     ? (feedback.reduce((s, f) => s + (f.rating || 0), 0) / feedback.length).toFixed(1)
     : null;
 
-  if (invalidId) {
-    return (
-      <div className="p-10 text-center text-red-600">
-        <h1 className="text-2xl font-bold">Invalid Tag</h1>
-        <p>ID: {cleanId}</p>
-      </div>
-    );
-  }
-
   if (error || !data)
     return (
       <div className="p-10 text-center text-red-600">
@@ -447,6 +490,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const getEmoji = (cat: string) =>
     ({ rent: '🪜', sell: '🛒', teach: '🎓', help: '🤝' }[cat] || '');
 
+  // Winner-first ordering for share buttons
+  const defaultChannels: ShareChannel[] = ['whatsapp', 'sms', 'copy', 'system'];
+  const orderedShareChannels: ShareChannel[] = winnerChannel
+    ? [winnerChannel, ...defaultChannels.filter((c) => c !== winnerChannel)]
+    : defaultChannels;
+
+  // QR points to a share-attributed URL (copy) so scans are tracked by channel
   const tagUrlWithCopyChannel = buildShareUrl(baseTagUrl, 'copy');
 
   return (
@@ -499,6 +549,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
 
+        {/* ===== Data-driven share nudge ===== */}
+        {winnerChannel && (
+          <div className="text-xs text-gray-600 border rounded-2xl px-3 py-2 bg-white shadow-sm">
+            🏆 Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
+          </div>
+        )}
+
         <div className="flex flex-wrap justify-center gap-3 mt-2">
           <button
             onClick={handleDownload}
@@ -507,33 +564,36 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             📥 Download QR
           </button>
 
-          <button
-            onClick={handleCopyLink}
-            className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300 transition text-sm"
-          >
-            🔗 Copy Link
-          </button>
+          {/* Winner-first share row */}
+          {orderedShareChannels.map((ch) => {
+            const isWinner = winnerChannel === ch;
 
-          <button
-            onClick={handleShare}
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            📣 Share
-          </button>
+            const base =
+              'rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50';
 
-          <button
-            onClick={handleWhatsApp}
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            💬 WhatsApp
-          </button>
+            const winnerStyle =
+              'border-black bg-black text-white hover:bg-gray-800';
 
-          <button
-            onClick={handleSMS}
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            ✉️ SMS
-          </button>
+            const label =
+              ch === 'whatsapp'
+                ? '💬 WhatsApp'
+                : ch === 'sms'
+                ? '✉️ SMS'
+                : ch === 'copy'
+                ? '🔗 Copy Link'
+                : '📣 Share';
+
+            return (
+              <button
+                key={ch}
+                onClick={() => onShareByChannel(ch)}
+                className={`${base} ${isWinner ? winnerStyle : ''}`}
+                title={isWinner ? 'Most successful channel' : undefined}
+              >
+                {label}
+              </button>
+            );
+          })}
 
           <Link
             href={`/tag/${encodeURIComponent(cleanId)}/print`}
@@ -631,3 +691,4 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
+
