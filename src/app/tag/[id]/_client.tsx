@@ -35,6 +35,10 @@ type Props = {
 const EXP_ID = 'cta_main_v1';
 const VARIANTS = ['A', 'B'] as const;
 
+// Share-copy experiment
+const SHARE_COPY_EXP_ID = 'share_copy_v1';
+const SHARE_COPY_VARIANTS = ['A', 'B'] as const;
+
 function getAnonId(): string {
   try {
     const k = 'omni_anon_id';
@@ -58,13 +62,12 @@ function hashFNV(str: string): number {
   return h >>> 0;
 }
 
-function assignVariant(experimentId: string, tagId: string, variants = VARIANTS) {
+function assignVariant(experimentId: string, key: string, variants = VARIANTS) {
   const anon = getAnonId();
-  const idx = hashFNV(`${experimentId}:${tagId}:${anon}`) % variants.length;
+  const idx = hashFNV(`${experimentId}:${key}:${anon}`) % variants.length;
   return variants[idx];
 }
 
-// --- Channel helpers ---
 type ShareChannel = 'whatsapp' | 'sms' | 'copy' | 'system';
 
 function normalizeWinnerChannel(ch: string | null | undefined): ShareChannel | null {
@@ -86,21 +89,76 @@ function labelForChannel(ch: ShareChannel) {
   return 'Copy';
 }
 
-function buildShareUrl(baseUrl: string, channel: ShareChannel) {
+/**
+ * Shared URL builder with channel + copy variant (cv)
+ * rid is optional referral_code if present
+ */
+function buildShareUrl(baseUrl: string, channel: ShareChannel, cv?: string | null) {
   const url = new URL(baseUrl);
   url.searchParams.set('ch', channel);
+  if (cv) url.searchParams.set('cv', cv);
   const rid = localStorage.getItem('referral_code');
   if (rid) url.searchParams.set('rid', rid);
   return url.toString();
 }
 
-function getChannelFromQuery() {
+function getQueryParam(name: string) {
   try {
     const params = new URLSearchParams(window.location.search);
-    return params.get('ch') || null;
+    return params.get(name) || null;
   } catch {
     return null;
   }
+}
+
+/** Store last attribution per tag so later events can include it */
+function setLastAttribution(tagId: string, data: { ch?: string | null; cv?: string | null }) {
+  try {
+    const key = `omni_attr_${tagId}`;
+    localStorage.setItem(key, JSON.stringify({ ...data, at: Date.now() }));
+  } catch {}
+}
+function getLastAttribution(tagId: string): { ch?: string | null; cv?: string | null } | null {
+  try {
+    const key = `omni_attr_${tagId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Message templates per channel + variant */
+function buildShareMessage(opts: {
+  title: string;
+  url: string;
+  channel: ShareChannel;
+  variant: 'A' | 'B';
+}) {
+  const { title, url, channel, variant } = opts;
+
+  // Keep it short. People don’t read.
+  if (channel === 'whatsapp') {
+    return variant === 'A'
+      ? `Quick one — check this out:\n${title}\n${url}`
+      : `This local service is worth saving:\n${title}\n${url}`;
+  }
+
+  if (channel === 'sms') {
+    return variant === 'A'
+      ? `Check this out: ${title} — ${url}`
+      : `Local help/service: ${title} — ${url}`;
+  }
+
+  if (channel === 'copy') {
+    return variant === 'A'
+      ? `Check this out on OmniNet:\n${title}\n${url}`
+      : `Local service on OmniNet:\n${title}\n${url}`;
+  }
+
+  // system share
+  return variant === 'A' ? `Check this out: ${title}` : `Local service: ${title}`;
 }
 
 /** A2HS prompt nudge */
@@ -211,7 +269,8 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
-  const variant = useMemo(() => assignVariant(EXP_ID, cleanId), [cleanId]);
+
+  const variant = useMemo(() => assignVariant(EXP_ID, cleanId, VARIANTS), [cleanId]);
   const impressionSent = useRef(false);
 
   const origin =
@@ -231,6 +290,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   // Winner channel state
   const [winnerChannel, setWinnerChannel] = useState<ShareChannel | null>(null);
+
+  // Share-copy A/B variant (sticky per device/tag/channel)
+  const shareCopyVariant = useMemo(() => {
+    // key includes tagId so different tags can converge to different copy
+    return assignVariant(SHARE_COPY_EXP_ID, `${cleanId}:share_copy`, SHARE_COPY_VARIANTS);
+  }, [cleanId]);
 
   // ---------- Basic data ----------
   useEffect(() => {
@@ -286,7 +351,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     (async () => {
       try {
-        // Winner view returns 1 row per tag_id (only when successes exist)
         const { data: win, error: winErr } = await supabase
           .from('tag_best_channel_30d')
           .select('channel')
@@ -313,44 +377,82 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
   }, [cleanId, supabase]);
 
+  // ---------- Attribution on open ----------
+  useEffect(() => {
+    const ch = getQueryParam('ch');
+    const cv = getQueryParam('cv');
+    if (ch || cv) {
+      setLastAttribution(cleanId, { ch, cv });
+    }
+  }, [cleanId]);
+
+  // Log share_open once per (tag, ch, cv)
+  useEffect(() => {
+    const ch = getQueryParam('ch');
+    const cv = getQueryParam('cv');
+
+    if (!ch) return;
+
+    const key = `omninet_open_${cleanId}_${ch}_${cv || 'na'}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, '1');
+
+    logEvent('share_open', {
+      tag_id: cleanId,
+      channel: ch,
+      meta: {
+        copy_variant: cv || null,
+        exp: SHARE_COPY_EXP_ID,
+      },
+      referrer: typeof document !== 'undefined' ? document.referrer : undefined,
+    }).catch(() => {});
+  }, [cleanId]);
+
   // ---------- Analytics ----------
   useEffect(() => {
-    logEvent('view_tag', { tag_id: cleanId });
+    logEvent('view_tag', { tag_id: cleanId }).catch(() => {});
   }, [cleanId]);
 
   useEffect(() => {
     if (!impressionSent.current) {
-      logEvent('cta_impression', { tag_id: cleanId, experiment_id: EXP_ID, variant });
+      logEvent('cta_impression', { tag_id: cleanId, experiment_id: EXP_ID, variant }).catch(() => {});
       impressionSent.current = true;
     }
   }, [cleanId, variant]);
-
-  useEffect(() => {
-    const ch = getChannelFromQuery();
-    if (!ch) return;
-    const key = `omninet_so_${cleanId}_${ch}`;
-    if (localStorage.getItem(key)) return;
-    localStorage.setItem(key, '1');
-    logEvent('share_open' as any, {
-      tag_id: cleanId,
-      channel: ch,
-      referrer: typeof document !== 'undefined' ? document.referrer : undefined,
-    });
-  }, [cleanId]);
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
   const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />;
 
+  const getAttrMeta = () => {
+    const attr = getLastAttribution(cleanId);
+    return {
+      share_channel: attr?.ch || null,
+      copy_variant: attr?.cv || null,
+      share_exp: SHARE_COPY_EXP_ID,
+    };
+  };
+
   // ---------- CTA + payments ----------
   async function startCheckout(id: string, amountCents = 500) {
     try {
       const refCode = localStorage.getItem('referral_code') || '';
+
+      // include attribution for analytics (NOT Stripe yet)
+      const meta = getAttrMeta();
+      await logEvent('checkout_start', {
+        tag_id: cleanId,
+        experiment_id: EXP_ID,
+        variant,
+        meta,
+      });
+
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tagId: id, refCode, amountCents }),
       });
+
       const { url } = await res.json();
       if (url) window.location.href = url;
       else toast.error('❌ Checkout failed');
@@ -360,22 +462,21 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }
 
   const onPrimaryCTAClick = async () => {
-    await logEvent('cta_click', { tag_id: cleanId, experiment_id: EXP_ID, variant });
+    await logEvent('cta_click', { tag_id: cleanId, experiment_id: EXP_ID, variant }).catch(() => {});
+
     if (variant === 'A') {
-      await logEvent('booking_start', { tag_id: cleanId });
+      await logEvent('booking_start', { tag_id: cleanId, meta: getAttrMeta() }).catch(() => {});
       document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
     } else {
-      await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
       startCheckout(cleanId, 500);
     }
   };
 
   const onSupportClick = async () => {
-    await logEvent('checkout_start', { tag_id: cleanId, experiment_id: EXP_ID, variant });
     startCheckout(cleanId, 500);
   };
 
-  // ---------- Share handlers ----------
+  // ---------- Share handlers with A/B copy ----------
   const handleDownload = async () => {
     if (!qrRef.current) return;
     const dataUrl = await toPng(qrRef.current);
@@ -386,50 +487,57 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     toast.success('📥 QR code downloaded!');
   };
 
-  const handleCopyLink = async () => {
-    const url = buildShareUrl(baseTagUrl, 'copy');
-    const text = `Check this out on OmniNet:\n${data?.title || ''}\n${url}`;
-    await navigator.clipboard.writeText(text);
-    toast.success('🔗 Link copied!');
-    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'copy' });
-  };
+  const shareVariant = shareCopyVariant; // 'A' | 'B'
+  const title = data?.title || 'OmniNet Tag';
 
-  const handleShare = async () => {
-    const url = buildShareUrl(baseTagUrl, 'system');
+  const sendShare = async (channel: ShareChannel) => {
+    const cv = shareVariant;
+    const url = buildShareUrl(baseTagUrl, channel, cv);
+    const text = buildShareMessage({ title, url, channel, variant: cv });
+
+    // log click
+    await logEvent('share_click', {
+      tag_id: cleanId,
+      channel,
+      meta: {
+        exp: SHARE_COPY_EXP_ID,
+        copy_variant: cv,
+        winner_channel: winnerChannel || null,
+        message_len: text.length,
+      },
+    }).catch(() => {});
+
+    // Execute action
+    if (channel === 'whatsapp') {
+      const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(wa, '_blank');
+      return;
+    }
+
+    if (channel === 'sms') {
+      const smsUrl = `sms:?&body=${encodeURIComponent(text)}`;
+      window.location.href = smsUrl;
+      return;
+    }
+
+    if (channel === 'copy') {
+      await navigator.clipboard.writeText(text);
+      toast.success('🔗 Copied!');
+      return;
+    }
+
+    // system share
     try {
-      const shareData = { title: data?.title || 'OmniNet Tag', text: data?.title, url };
+      const shareData = { title, text, url };
       if ((navigator as any).share) {
         await (navigator as any).share(shareData);
-        await logEvent('share_click' as any, { tag_id: cleanId, channel: 'system' });
         return;
       }
       await navigator.clipboard.writeText(url);
       toast.success('🔗 Link copied!');
-      await logEvent('share_click' as any, { tag_id: cleanId, channel: 'system' });
     } catch {
       toast.error('❌ Could not share right now');
     }
-  };
-
-  const handleWhatsApp = async () => {
-    const url = buildShareUrl(baseTagUrl, 'whatsapp');
-    const wa = `https://wa.me/?text=${encodeURIComponent(`Check this out: ${url}`)}`;
-    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'whatsapp' });
-    window.open(wa, '_blank');
-  };
-
-  const handleSMS = async () => {
-    const url = buildShareUrl(baseTagUrl, 'sms');
-    const smsUrl = `sms:?&body=${encodeURIComponent(`Check this out: ${url}`)}`;
-    await logEvent('share_click' as any, { tag_id: cleanId, channel: 'sms' });
-    window.location.href = smsUrl;
-  };
-
-  const onShareByChannel = async (ch: ShareChannel) => {
-    if (ch === 'whatsapp') return handleWhatsApp();
-    if (ch === 'sms') return handleSMS();
-    if (ch === 'copy') return handleCopyLink();
-    return handleShare();
   };
 
   // ---------- Feedback handlers ----------
@@ -490,14 +598,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const getEmoji = (cat: string) =>
     ({ rent: '🪜', sell: '🛒', teach: '🎓', help: '🤝' }[cat] || '');
 
-  // Winner-first ordering for share buttons
   const defaultChannels: ShareChannel[] = ['whatsapp', 'sms', 'copy', 'system'];
   const orderedShareChannels: ShareChannel[] = winnerChannel
     ? [winnerChannel, ...defaultChannels.filter((c) => c !== winnerChannel)]
     : defaultChannels;
 
-  // QR points to a share-attributed URL (copy) so scans are tracked by channel
-  const tagUrlWithCopyChannel = buildShareUrl(baseTagUrl, 'copy');
+  // QR uses copy channel + variant so scans are attributable
+  const tagUrlForQR = buildShareUrl(baseTagUrl, 'copy', shareVariant);
 
   return (
     <div className="p-10 text-center">
@@ -529,10 +636,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
       <p className="text-xs text-gray-500 mb-1">🔢 {scanCount} scans</p>
-
       {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>}
 
-      {/* ===== Primary CTA ===== */}
       <div className="my-4 flex justify-center">
         <button
           onClick={onPrimaryCTAClick}
@@ -544,12 +649,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <div className="flex flex-col items-center gap-3 mb-8">
         <div ref={qrRef} className="bg-white p-3 rounded shadow">
-          <QRCode value={tagUrlWithCopyChannel} size={160} level="H" />
+          <QRCode value={tagUrlForQR} size={160} level="H" />
         </div>
 
         <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
 
-        {/* ===== Data-driven share nudge ===== */}
         {winnerChannel && (
           <div className="text-xs text-gray-600 border rounded-2xl px-3 py-2 bg-white shadow-sm">
             🏆 Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
@@ -564,15 +668,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             📥 Download QR
           </button>
 
-          {/* Winner-first share row */}
           {orderedShareChannels.map((ch) => {
             const isWinner = winnerChannel === ch;
 
-            const base =
-              'rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50';
-
-            const winnerStyle =
-              'border-black bg-black text-white hover:bg-gray-800';
+            const base = 'rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50';
+            const winnerStyle = 'border-black bg-black text-white hover:bg-gray-800';
 
             const label =
               ch === 'whatsapp'
@@ -586,9 +686,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             return (
               <button
                 key={ch}
-                onClick={() => onShareByChannel(ch)}
+                onClick={() => sendShare(ch)}
                 className={`${base} ${isWinner ? winnerStyle : ''}`}
-                title={isWinner ? 'Most successful channel' : undefined}
+                title={isWinner ? 'Most successful channel' : `Copy variant ${shareVariant}`}
               >
                 {label}
               </button>
@@ -611,19 +711,20 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             💸 Support this Tag
           </button>
         </div>
+
+        <div className="text-[11px] text-gray-400 mt-1">
+          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
+          <span className="font-mono">{shareVariant}</span>
+        </div>
       </div>
 
       <ScanAnalytics data={scanChartData} />
 
-      {/* Booking Section */}
       <hr className="my-8 border-gray-300" />
       <h2 id="booking-section" className="text-xl font-semibold mb-4">📅 Booking</h2>
       <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
-
-      {/* Owner’s list of requests */}
       {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
 
-      {/* Feedback Section */}
       <hr className="my-8 border-gray-300" />
       <h2 className="text-xl font-semibold mb-4">💬 Feedback</h2>
 
@@ -691,4 +792,5 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     </div>
   );
 }
+
 

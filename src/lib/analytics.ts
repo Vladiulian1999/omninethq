@@ -3,6 +3,7 @@
 // Minimal browser-only logger that calls our server API.
 // No env access, no Supabase import, safe for all pages to import.
 export type EventName =
+  
   | 'view_tag'
   | 'cta_impression'
   | 'cta_click'
@@ -11,8 +12,8 @@ export type EventName =
   | 'booking_submitted'
   | 'booking_accepted'
   | 'share_click'
-  | 'share_open'; // ✅ added
-'checkout_success'; // ✅ add this
+  | 'share_open';
+
 export async function logEvent(
   evt: EventName,
   payload: {
