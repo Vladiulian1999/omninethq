@@ -352,7 +352,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     (async () => {
       try {
         const { data: win, error: winErr } = await supabase
-          .from('tag_best_channel_30d')
+          .from('tag_best_revenue_channel_30d')
           .select('channel')
           .eq('tag_id', cleanId)
           .maybeSingle();
