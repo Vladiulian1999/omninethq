@@ -20,13 +20,21 @@ type FunnelRow = {
   last_event_at: string | null;
 };
 
-type BestChannelRow = {
+type RevenueRow30d = {
+  tag_id: string;
+  channel: string | null;
+  copy_variant: string | null;
+  checkout_successes: number | null;
+  revenue_cents: number | null;
+  last_success_at: string | null;
+};
+
+type BestRevenueChannelRow = {
   tag_id: string;
   channel: string | null;
   checkout_successes: number | null;
-  share_to_success_pct: number | null;
-  view_to_success_pct: number | null;
-  last_event_at: string | null;
+  revenue_cents: number | null;
+  last_success_at: string | null;
 };
 
 type TagTitleRow = {
@@ -39,10 +47,14 @@ type DisplayRow = FunnelRow & {
   title?: string | null;
   category?: string | null;
 
+  // revenue (30d)
+  revenue_cents_30d?: number | null;
+
+  // winner by revenue (30d)
   winner_channel?: string | null;
   winner_successes?: number | null;
-  winner_share_to_success_pct?: number | null;
-  winner_view_to_success_pct?: number | null;
+  winner_revenue_cents?: number | null;
+  winner_last_success_at?: string | null;
 };
 
 function fmtPct(n: number | null | undefined) {
@@ -51,8 +63,13 @@ function fmtPct(n: number | null | undefined) {
 }
 
 function fmtNum(n: number | null | undefined) {
-  if (n === null || n === undefined) return 0;
-  return n;
+  if (n === null || n === undefined || Number.isNaN(n)) return 0;
+  return Number(n);
+}
+
+function fmtGBPFromCents(cents: number | null | undefined) {
+  const v = fmtNum(cents);
+  return `£${(v / 100).toFixed(2)}`;
 }
 
 function friendlyChannel(ch: string | null | undefined) {
@@ -104,13 +121,11 @@ export default function FunnelClient() {
     async function load() {
       setLoading(true);
 
-      // Try 7d view if selected; if it doesn't exist, fall back to 30d.
+      // Existing funnel views (events-based)
       const viewName = windowKey === '7d' ? 'tag_funnel_7d' : 'tag_funnel_30d';
-
       const { data: funnelData, error: funnelErr } = await supabase.from(viewName).select('*');
 
       if (funnelErr) {
-        // If 7d doesn't exist, fall back silently to 30d
         if (windowKey === '7d') {
           setHas7d(false);
           setWindowKey('30d');
@@ -132,31 +147,47 @@ export default function FunnelClient() {
 
       const funnelRows = (funnelData || []) as FunnelRow[];
 
-      // Fetch winners (one row per tag) from view
+      // --- Revenue (30d) by tag+channel ---
+      // NOTE: revenue view is 30d only (by design). It still adds value even if you choose 7d events.
+      const { data: revenueData, error: revErr } = await supabase
+        .from('tag_revenue_funnel_30d')
+        .select('*');
+
+      if (revErr) {
+        console.warn('revenue view error:', revErr.message);
+      }
+
+      // Map revenue by tag_id + channel
+      const revenueMap = new Map<string, number>();
+      (revenueData as any[] | null)?.forEach((r) => {
+        const tag_id = (r?.tag_id || '').toString();
+        const channel = friendlyChannel(r?.channel);
+        const key = `${tag_id}::${channel}`;
+        const rev = Number(r?.revenue_cents ?? 0) || 0;
+        // If multiple rows exist (e.g. copy_variant splits), sum them
+        revenueMap.set(key, (revenueMap.get(key) || 0) + rev);
+      });
+
+      // Winner by revenue (30d)
       const { data: winnersData, error: winErr } = await supabase
-        .from('tag_best_channel_30d')
+        .from('tag_best_revenue_channel_30d')
         .select('*');
 
       if (winErr) {
-        console.warn('winner view error:', winErr.message);
+        console.warn('winner revenue view error:', winErr.message);
       }
 
-      const winnerMap = new Map<string, BestChannelRow>();
+      const winnerMap = new Map<string, BestRevenueChannelRow>();
       (winnersData as any[] | null)?.forEach((w) => {
-        if (w?.tag_id) winnerMap.set(w.tag_id, w as BestChannelRow);
+        if (w?.tag_id) winnerMap.set(w.tag_id, w as BestRevenueChannelRow);
       });
 
-      // Get unique tag ids and fetch titles/categories
+      // Tag titles/categories
       const tagIds = Array.from(
-        new Set(
-          funnelRows
-            .map((r) => (r.tag_id || '').toString().trim())
-            .filter(Boolean)
-        )
+        new Set(funnelRows.map((r) => (r.tag_id || '').toString().trim()).filter(Boolean))
       );
 
       const titleMap = new Map<string, TagTitleRow>();
-
       if (tagIds.length) {
         const { data: tags, error: tagsErr } = await supabase
           .from('messages')
@@ -166,9 +197,7 @@ export default function FunnelClient() {
         if (tagsErr) {
           console.warn('messages lookup error:', tagsErr.message);
         } else {
-          (tags || []).forEach((t: any) => {
-            titleMap.set(t.id, t as TagTitleRow);
-          });
+          (tags || []).forEach((t: any) => titleMap.set(t.id, t as TagTitleRow));
         }
       }
 
@@ -176,24 +205,36 @@ export default function FunnelClient() {
         const t = titleMap.get(r.tag_id);
         const w = winnerMap.get(r.tag_id);
 
+        const rowChannel = friendlyChannel(r.channel);
+        const revKey = `${r.tag_id}::${rowChannel}`;
+        const revenue_cents_30d = revenueMap.get(revKey) ?? 0;
+
         return {
           ...r,
           title: t?.title ?? null,
           category: t?.category ?? null,
-          channel: friendlyChannel(r.channel),
+          channel: rowChannel,
+
+          revenue_cents_30d,
 
           winner_channel: w?.channel ? friendlyChannel(w.channel) : null,
           winner_successes: w?.checkout_successes ?? null,
-          winner_share_to_success_pct: w?.share_to_success_pct ?? null,
-          winner_view_to_success_pct: w?.view_to_success_pct ?? null,
+          winner_revenue_cents: w?.revenue_cents ?? null,
+          winner_last_success_at: w?.last_success_at ?? null,
         };
       });
 
-      // Sort winners first, then by successes → starts → views
+      // Sort: tags with winner revenue first, then by revenue (row), then successes, then starts, then views
       merged.sort((a, b) => {
-        const aHasW = a.winner_successes && a.winner_successes > 0 ? 1 : 0;
-        const bHasW = b.winner_successes && b.winner_successes > 0 ? 1 : 0;
+        const aWinRev = fmtNum(a.winner_revenue_cents);
+        const bWinRev = fmtNum(b.winner_revenue_cents);
+        const aHasW = aWinRev > 0 ? 1 : 0;
+        const bHasW = bWinRev > 0 ? 1 : 0;
         if (bHasW !== aHasW) return bHasW - aHasW;
+
+        const aRev = fmtNum(a.revenue_cents_30d);
+        const bRev = fmtNum(b.revenue_cents_30d);
+        if (bRev !== aRev) return bRev - aRev;
 
         const aS = fmtNum(a.checkout_successes);
         const bS = fmtNum(b.checkout_successes);
@@ -239,7 +280,7 @@ export default function FunnelClient() {
         <div>
           <h1 className="text-2xl font-semibold">Funnel</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Per tag + channel: views → share clicks → checkout starts → checkout successes
+            Per tag + channel: views → share clicks → checkout starts → successes (+ 30d revenue)
           </p>
         </div>
 
@@ -279,11 +320,11 @@ export default function FunnelClient() {
       <div className="mt-6 rounded-2xl border bg-white overflow-hidden">
         <div className="px-4 py-3 border-b text-sm text-gray-600 flex items-center justify-between">
           <span>{loading ? 'Loading…' : `${filtered.length} rows`}</span>
-          <span className="text-xs text-gray-400">Sorted by winners → successes → starts → views</span>
+          <span className="text-xs text-gray-400">Sorted by winner revenue → revenue → successes → starts → views</span>
         </div>
 
         <div className="overflow-auto">
-          <table className="min-w-[1120px] w-full text-sm">
+          <table className="min-w-[1260px] w-full text-sm">
             <thead className="bg-gray-50 text-gray-700">
               <tr className="text-left">
                 <th className="px-4 py-3">Tag</th>
@@ -293,6 +334,7 @@ export default function FunnelClient() {
                 <th className="px-4 py-3">Share clicks</th>
                 <th className="px-4 py-3">Checkout starts</th>
                 <th className="px-4 py-3">Successes</th>
+                <th className="px-4 py-3">Revenue (30d)</th>
                 <th className="px-4 py-3">View→Success</th>
                 <th className="px-4 py-3">Share→Success</th>
                 <th className="px-4 py-3">Open</th>
@@ -302,7 +344,7 @@ export default function FunnelClient() {
             <tbody>
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                     No funnel data yet. Generate traffic + donations, then refresh.
                   </td>
                 </tr>
@@ -328,7 +370,7 @@ export default function FunnelClient() {
                       <div className="flex flex-col gap-1">
                         {winnerBadge(r.winner_channel)}
                         <div className="text-xs text-gray-500">
-                          {fmtNum(r.winner_successes)} success • {fmtPct(r.winner_share_to_success_pct)} share→success
+                          {fmtGBPFromCents(r.winner_revenue_cents)} • {fmtNum(r.winner_successes)} success
                         </div>
                       </div>
                     ) : (
@@ -340,6 +382,7 @@ export default function FunnelClient() {
                   <td className="px-4 py-3">{fmtNum(r.share_clicks)}</td>
                   <td className="px-4 py-3">{fmtNum(r.checkout_starts)}</td>
                   <td className="px-4 py-3 font-semibold">{fmtNum(r.checkout_successes)}</td>
+                  <td className="px-4 py-3 font-semibold">{fmtGBPFromCents(r.revenue_cents_30d)}</td>
                   <td className="px-4 py-3">{fmtPct(r.view_to_success_pct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.share_to_success_pct)}</td>
 
@@ -360,10 +403,10 @@ export default function FunnelClient() {
         </div>
 
         <div className="px-4 py-3 border-t text-xs text-gray-500">
-          Winner is computed from <span className="font-mono">tag_best_channel_30d</span> (only tags with successes).
+          Winner is computed from <span className="font-mono">tag_best_revenue_channel_30d</span>. Revenue comes from{' '}
+          <span className="font-mono">donations</span> (30d).
         </div>
       </div>
     </div>
   );
 }
-
