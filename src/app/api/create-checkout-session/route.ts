@@ -1,149 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11-15' });
 
-/**
- * Server-only Supabase client (SERVICE ROLE). Never expose this key to the browser.
- * Supports either SUPABASE_SERVICE_ROLE or SUPABASE_SERVICE_ROLE_KEY env names.
- */
-function getServiceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing');
-  if (!key) throw new Error('SUPABASE_SERVICE_ROLE(_KEY) is missing');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-function cleanText(v: any) {
+function cleanStr(v: any) {
   return (v ?? '').toString().trim();
 }
 
-function safeLower(v: any) {
-  return cleanText(v).toLowerCase();
-}
-
-function safeUpper(v: any) {
-  return cleanText(v).toUpperCase();
+function cleanId(v: any) {
+  // keep dashes/underscores, only strip spaces + angle brackets
+  return cleanStr(v).replace(/[<>\s]/g, '');
 }
 
 export async function POST(req: NextRequest) {
-  const signature = req.headers.get('stripe-signature');
-  if (!signature) return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
+  let body: any = null;
 
-  let event: Stripe.Event;
   try {
-    const raw = await req.text(); // Stripe needs raw body
-    event = stripe.webhooks.constructEvent(raw, signature, process.env.STRIPE_WEBHOOK_SECRET!);
-  } catch (err: any) {
-    console.error('[webhook] signature fail:', err?.message);
-    return NextResponse.json({ error: 'Bad signature' }, { status: 400 });
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
   try {
-    if (event.type === 'checkout.session.completed') {
-      const s = event.data.object as Stripe.Checkout.Session;
+    // ✅ accept multiple possible keys (prevents breaking when client differs)
+    const tagId =
+      cleanId(body?.tagId) ||
+      cleanId(body?.tag) ||
+      cleanId(body?.id) ||
+      cleanId(body?.tag_id);
 
-      const amount = s.amount_total ?? 0;
-      const currency = (s.currency ?? 'gbp').toLowerCase();
-      const stripeSessionId = s.id;
-
-      // metadata carried from checkout creation
-      const tagIdRaw = cleanText(s.metadata?.tagId);
-      const tagId = tagIdRaw.replace(/[<>\s]/g, '');
-      const refCodeRaw = cleanText(s.metadata?.refCode);
-      const refCode = refCodeRaw ? refCodeRaw.trim().toLowerCase() : null;
-
-      // ✅ NEW: channel + copy variant from metadata (we set these in create-checkout-session)
-      const shareChannelRaw = safeLower(s.metadata?.ch);
-      const copyVariantRaw = safeUpper(s.metadata?.cv);
-
-      const share_channel = shareChannelRaw || null; // e.g. whatsapp/sms/copy/system
-      const copy_variant = copyVariantRaw || null;   // e.g. A/B
-
-      if (!tagId) {
-        console.warn('[webhook] missing tagId; skipping inserts');
-        return NextResponse.json({ received: true }, { status: 200 });
-      }
-
-      const supabase = getServiceSupabase();
-
-      // Resolve referrer_user_id from referral_code
-      let referrer_user_id: string | null = null;
-      if (refCode) {
-        const { data: refUser, error: refErr } = await supabase
-          .from('users')
-          .select('id')
-          .eq('referral_code', refCode)
-          .maybeSingle();
-
-        if (refErr) console.warn('[webhook] ref lookup error:', refErr.message);
-        referrer_user_id = (refUser as any)?.id ?? null;
-      }
-
-      // --- 1) donations insert (idempotent via unique stripe_session_id)
-      // IMPORTANT: ensure you already ran:
-      // alter table public.donations add column if not exists share_channel text, add column if not exists copy_variant text;
-      const donationPayload = {
-        tag_id: tagId,
-        amount_cents: amount,
-        currency,
-        stripe_session_id: stripeSessionId,
-        referral_code: refCode,
-        referrer_user_id,
-
-        // ✅ NEW fields
-        share_channel,
-        copy_variant,
-      };
-
-      const { error: donationsErr } = await supabase.from('donations').insert(donationPayload);
-      if (donationsErr) {
-        const msg = donationsErr.message.toLowerCase();
-        // Stripe retries webhooks; duplicates are normal if unique constraint exists
-        if (!msg.includes('duplicate') && !msg.includes('unique')) {
-          console.error('[webhook] donations insert error:', donationsErr.message);
-        }
-      }
-
-      // --- 2) analytics_events server-truth checkout_success
-      // This is optional if you're already logging checkout_success client-side, but it's good to have server truth.
-      const analyticsPayload = {
-        event: 'checkout_success',
-        tag_id: tagId,
-        channel: share_channel || 'direct',
-        experiment_id: null,
-        variant: null,
-        anon_id: null,
-        referrer: null,
-        meta: {
-          stripe_session_id: stripeSessionId,
-          amount_cents: amount,
-          currency,
-          ref_code: refCode,
-          share_channel,
-          copy_variant,
-        } as Record<string, any>,
-      };
-
-      const { error: analyticsErr } = await supabase.from('analytics_events').insert(analyticsPayload);
-      if (analyticsErr) {
-        const msg = analyticsErr.message.toLowerCase();
-        if (!msg.includes('duplicate') && !msg.includes('unique')) {
-          console.error('[webhook] analytics insert error:', analyticsErr.message);
-        }
-      }
+    if (!tagId) {
+      return NextResponse.json(
+        { error: 'Missing or invalid tagId', received: Object.keys(body || {}) },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({ received: true }, { status: 200 });
-  } catch (err: any) {
-    console.error('[webhook] handler error:', err?.message || err);
-    return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
+    const refCode = cleanStr(body?.refCode);
+    const amountCentsRaw = body?.amountCents;
+
+    const ch = cleanStr(body?.ch).toLowerCase(); // whatsapp/sms/copy/system
+    const cv = cleanStr(body?.cv).toUpperCase(); // A/B etc
+
+    const amount = Number.isFinite(+amountCentsRaw) && +amountCentsRaw > 0 ? +amountCentsRaw : 500;
+
+    const origin =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      req.headers.get('origin') ||
+      'https://omninethq.co.uk';
+
+    const successUrl = new URL(`${origin}/success`);
+    successUrl.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
+    successUrl.searchParams.set('tag', tagId);
+    if (ch) successUrl.searchParams.set('ch', ch);
+    if (cv) successUrl.searchParams.set('cv', cv);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'gbp',
+            product_data: { name: `Support Tag ${tagId}` },
+            unit_amount: amount,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: successUrl.toString(),
+      cancel_url: `${origin}/cancel?status=canceled`,
+      metadata: {
+        tagId,
+        refCode: (refCode || '').toString(),
+        ch: (ch || '').toString(),
+        cv: (cv || '').toString(),
+      },
+    });
+
+    return NextResponse.json({ id: session.id, url: session.url });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? 'Stripe error' }, { status: 500 });
   }
 }
-
-
