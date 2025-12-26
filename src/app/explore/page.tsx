@@ -16,24 +16,18 @@ type Tag = {
   created_at: string;
 };
 
-function getEnv(name: string) {
+function requireEnv(name: string) {
   const v = process.env[name];
-  return v && v.trim().length ? v : undefined;
+  if (!v || !v.trim()) {
+    throw new Error(`Missing env var: ${name}`);
+  }
+  return v.trim();
 }
 
 export default async function ExplorePage() {
-  const url =
-    getEnv("SUPABASE_URL") ?? getEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const anon =
-    getEnv("SUPABASE_ANON_KEY") ?? getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-
-  if (!url || !anon) {
-    return (
-      <div className="p-6 text-red-600">
-        Missing Supabase env vars. Check .env.local / Vercel env.
-      </div>
-    );
-  }
+  // Fail fast with a clear server-rendered error (instead of silent weirdness)
+  const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anon = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   const supabase = createClient(url, anon);
 
@@ -62,31 +56,33 @@ export default async function ExplorePage() {
         <div className="text-gray-600">No tags yet.</div>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2">
-          {tags.map((t) => (
-            <li key={t.id} className="border rounded-2xl p-4 bg-white shadow-sm">
-              <Link
-                href={`/tag/${encodeURIComponent(t.id)}`}
-                className="font-semibold hover:underline"
-              >
-                {t.title || t.id}
-              </Link>
+          {tags.map((t) => {
+            const href = `/tag/${encodeURIComponent(t.id)}`;
 
-              {t.description ? (
-                <div className="text-sm text-gray-600 mt-1 line-clamp-2">
-                  {t.description}
+            return (
+              <li key={t.id} className="border rounded-2xl p-4 bg-white shadow-sm">
+                <Link href={href} className="font-semibold hover:underline">
+                  {t.title}
+                </Link>
+
+                {t.description ? (
+                  <div className="text-sm text-gray-600 mt-1 line-clamp-2">
+                    {t.description}
+                  </div>
+                ) : null}
+
+                <div className="text-xs text-gray-500 mt-2">
+                  {(t.category ?? "uncategorized")} •{" "}
+                  {new Date(t.created_at).toLocaleDateString()}
                 </div>
-              ) : null}
-
-              <div className="text-xs text-gray-500 mt-2">
-                {(t.category ?? "uncategorized")} •{" "}
-                {new Date(t.created_at).toLocaleDateString()}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
   );
 }
+
 
 
