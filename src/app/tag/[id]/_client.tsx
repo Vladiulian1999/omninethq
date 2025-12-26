@@ -439,6 +439,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const refCode = localStorage.getItem('referral_code') || '';
 
       // include attribution for analytics (NOT Stripe yet)
+      const attr = getLastAttribution(cleanId);
+const ch = attr?.ch || '';
+const cv = attr?.cv || '';
+
       const meta = getAttrMeta();
       await logEvent('checkout_start', {
         tag_id: cleanId,
@@ -450,7 +454,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId: id, refCode, amountCents }),
+        body: JSON.stringify({ tagId: id, refCode, amountCents, ch, cv }),
+
       });
 
       const { url } = await res.json();

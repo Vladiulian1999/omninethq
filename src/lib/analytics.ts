@@ -3,16 +3,16 @@
 // Minimal browser-only logger that calls our server API.
 // No env access, no Supabase import, safe for all pages to import.
 export type EventName =
-  
   | 'view_tag'
   | 'cta_impression'
   | 'cta_click'
+  | 'share_click'
+  | 'share_open'
   | 'checkout_start'
+  | 'checkout_success'
   | 'booking_start'
   | 'booking_submitted'
-  | 'booking_accepted'
-  | 'share_click'
-  | 'share_open';
+  | 'booking_accepted';
 
 export async function logEvent(
   evt: EventName,
@@ -27,16 +27,14 @@ export async function logEvent(
   } = {}
 ) {
   try {
-    // include anon_id on the client if you want; server will fill anything missing
     const body = JSON.stringify({ evt, payload });
     await fetch('/api/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      keepalive: true, // survives page unload
+      keepalive: true,
     });
   } catch (e) {
-    // Never throw from analytics
     console.warn('logEvent failed', e);
   }
 }
