@@ -39,13 +39,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ✅ Availability additions (optional)
+    const blockId =
+      cleanId(body?.blockId) ||
+      cleanId(body?.block_id) ||
+      cleanId(body?.availabilityBlockId);
+
+    const availabilityActionId =
+      cleanId(body?.availabilityActionId) ||
+      cleanId(body?.availability_action_id) ||
+      cleanId(body?.actionId);
+
     const refCode = cleanStr(body?.refCode);
     const amountCentsRaw = body?.amountCents;
 
     const ch = cleanStr(body?.ch).toLowerCase(); // whatsapp/sms/copy/system
     const cv = cleanStr(body?.cv).toUpperCase(); // A/B etc
 
-    const amount = Number.isFinite(+amountCentsRaw) && +amountCentsRaw > 0 ? +amountCentsRaw : 500;
+    const amount =
+      Number.isFinite(+amountCentsRaw) && +amountCentsRaw > 0 ? +amountCentsRaw : 500;
 
     const origin =
       process.env.NEXT_PUBLIC_SITE_URL ||
@@ -58,6 +70,10 @@ export async function POST(req: NextRequest) {
     if (ch) successUrl.searchParams.set('ch', ch);
     if (cv) successUrl.searchParams.set('cv', cv);
 
+    // Helpful for UI/debugging (webhook is still the truth)
+    if (blockId) successUrl.searchParams.set('block', blockId);
+    if (availabilityActionId) successUrl.searchParams.set('aa', availabilityActionId);
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -66,7 +82,13 @@ export async function POST(req: NextRequest) {
         {
           price_data: {
             currency: 'gbp',
-            product_data: { name: `Support Tag ${tagId}` },
+            product_data: {
+              name: blockId ? `Support Tag ${tagId} (Block)` : `Support Tag ${tagId}`,
+              metadata: {
+                tagId,
+                ...(blockId ? { blockId } : {}),
+              },
+            },
             unit_amount: amount,
           },
           quantity: 1,
@@ -79,6 +101,9 @@ export async function POST(req: NextRequest) {
         refCode: (refCode || '').toString(),
         ch: (ch || '').toString(),
         cv: (cv || '').toString(),
+        // ✅ Availability metadata for webhook confirmation
+        blockId: (blockId || '').toString(),
+        availabilityActionId: (availabilityActionId || '').toString(),
       },
     });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, type FormEvent } from 'react';
 import QRCode from 'react-qr-code';
 import { toPng } from 'html-to-image';
 import Link from 'next/link';
@@ -130,12 +130,7 @@ function getLastAttribution(tagId: string): { ch?: string | null; cv?: string | 
 }
 
 /** Message templates per channel + variant */
-function buildShareMessage(opts: {
-  title: string;
-  url: string;
-  channel: ShareChannel;
-  variant: 'A' | 'B';
-}) {
+function buildShareMessage(opts: { title: string; url: string; channel: ShareChannel; variant: 'A' | 'B' }) {
   const { title, url, channel, variant } = opts;
 
   // Keep it short. People don’t read.
@@ -146,9 +141,7 @@ function buildShareMessage(opts: {
   }
 
   if (channel === 'sms') {
-    return variant === 'A'
-      ? `Check this out: ${title} — ${url}`
-      : `Local help/service: ${title} — ${url}`;
+    return variant === 'A' ? `Check this out: ${title} — ${url}` : `Local help/service: ${title} — ${url}`;
   }
 
   if (channel === 'copy') {
@@ -233,11 +226,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
           return;
         }
 
-        const { data: booking } = await supabase
-          .from('bookings')
-          .select('id, status, tag_id')
-          .eq('id', bookingId)
-          .single();
+        const { data: booking } = await supabase.from('bookings').select('id, status, tag_id').eq('id', bookingId).single();
 
         if (!booking || booking.tag_id !== cleanId) {
           toast.error('Booking not found or invalid.');
@@ -266,6 +255,19 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
   return null;
 }
 
+type AvailabilityBlockRow = {
+  id: string;
+  action_type: 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
+  title: string;
+  description: string | null;
+  price_pence: number | null;
+  currency: string;
+  capacity_total: number | null;
+  capacity_remaining: number | null;
+  start_at: string | null;
+  end_at: string | null;
+};
+
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
@@ -273,8 +275,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId, VARIANTS), [cleanId]);
   const impressionSent = useRef(false);
 
-  const origin =
-    typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk';
   const baseTagUrl = `${origin}/tag/${encodeURIComponent(cleanId)}`;
 
   const [data, setData] = useState<any>(null);
@@ -332,10 +333,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     const logScan = async () => {
       await supabase.from('scans').insert([{ tag_id: cleanId }]);
-      const { count } = await supabase
-        .from('scans')
-        .select('*', { count: 'exact', head: true })
-        .eq('tag_id', cleanId);
+      const { count } = await supabase.from('scans').select('*', { count: 'exact', head: true }).eq('tag_id', cleanId);
       setScanCount(count || 0);
     };
 
@@ -440,8 +438,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       // include attribution for analytics (NOT Stripe yet)
       const attr = getLastAttribution(cleanId);
-const ch = attr?.ch || '';
-const cv = attr?.cv || '';
+      const ch = attr?.ch || '';
+      const cv = attr?.cv || '';
 
       const meta = getAttrMeta();
       await logEvent('checkout_start', {
@@ -455,7 +453,6 @@ const cv = attr?.cv || '';
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tagId: id, refCode, amountCents, ch, cv }),
-
       });
 
       const { url } = await res.json();
@@ -545,6 +542,110 @@ const cv = attr?.cv || '';
     }
   };
 
+  // ---------- Availability action wiring (BOOK + PAY) ----------
+  async function createAvailabilityAction(block: AvailabilityBlockRow, initialStatus: 'initiated' | 'pending') {
+    const ref = localStorage.getItem('referral_code') || null;
+    const attr = getLastAttribution(cleanId);
+    const ch = attr?.ch || null;
+    const cv = attr?.cv || null;
+
+    const { data: inserted, error } = await supabase
+      .from('availability_actions')
+      .insert([
+        {
+          block_id: block.id,
+          tag_id: cleanId,
+          quantity: 1,
+          status: initialStatus,
+          channel: ch,
+          referral_code: ref,
+          meta: { copy_variant: cv },
+        },
+      ])
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return inserted.id as string;
+  }
+
+  async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
+    const refCode = localStorage.getItem('referral_code') || '';
+
+    const attr = getLastAttribution(cleanId);
+    const ch = attr?.ch || '';
+    const cv = attr?.cv || '';
+
+    const amountCents =
+      typeof block.price_pence === 'number' && block.price_pence >= 0 ? Math.round(block.price_pence) : 500;
+
+    await logEvent('checkout_start', {
+      tag_id: cleanId,
+      experiment_id: EXP_ID,
+      variant,
+      meta: {
+        ...getAttrMeta(),
+        block_id: block.id,
+        availability_action_id: actionId,
+        action_type: block.action_type,
+        price_pence: block.price_pence ?? null,
+      },
+    }).catch(() => {});
+
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tagId: cleanId,
+        refCode,
+        amountCents,
+        ch,
+        cv,
+        blockId: block.id,
+        availabilityActionId: actionId,
+      }),
+    });
+
+    const json = await res.json();
+    if (json?.url) window.location.href = json.url;
+    else toast.error('❌ Checkout failed');
+  }
+
+  async function handleAvailabilityPrimaryAction(blockAny: any) {
+    const block = blockAny as AvailabilityBlockRow;
+
+    try {
+      await logEvent('availability_click', {
+        tag_id: cleanId,
+        meta: {
+          block_id: block.id,
+          action_type: block.action_type,
+          price_pence: block.price_pence ?? null,
+        },
+      }).catch(() => {});
+
+      // BOOK / RESERVE / ENQUIRE → create action + scroll booking section
+      if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
+        await createAvailabilityAction(block, 'pending');
+        toast.success('✅ Added. Continue below to book/request.');
+        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+
+      // PAY / ORDER → create action + checkout
+      if (block.action_type === 'pay' || block.action_type === 'order') {
+        const actionId = await createAvailabilityAction(block, 'initiated');
+        await startCheckoutForBlock(block, actionId);
+        return;
+      }
+
+      toast.error('Unknown action type.');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Failed to start action.');
+    }
+  }
+
   // ---------- Feedback handlers ----------
   const handleDeleteFeedback = async (id: string) => {
     if (!confirm('Are you sure you want to hide this comment?')) return;
@@ -555,15 +656,13 @@ const cv = attr?.cv || '';
     } else toast.error('❌ Failed to hide feedback');
   };
 
-  const handleSubmitFeedback = async (e: React.FormEvent) => {
+  const handleSubmitFeedback = async (e: FormEvent) => {
     e.preventDefault();
     if (rating === '' || Number.isNaN(rating)) {
       toast.error('Please select a rating.');
       return;
     }
-    const { error } = await supabase.from('feedback').insert([
-      { tag_id: cleanId, name: name || 'Anonymous', message, rating },
-    ]);
+    const { error } = await supabase.from('feedback').insert([{ tag_id: cleanId, name: name || 'Anonymous', message, rating }]);
     if (!error) {
       setName('');
       setMessage('');
@@ -600,8 +699,7 @@ const cv = attr?.cv || '';
       help: 'bg-purple-100 text-purple-800',
     }[cat] || 'bg-gray-100 text-gray-800');
 
-  const getEmoji = (cat: string) =>
-    ({ rent: '🪜', sell: '🛒', teach: '🎓', help: '🤝' }[cat] || '');
+  const getEmoji = (cat: string) => ({ rent: '🪜', sell: '🛒', teach: '🎓', help: '🤝' }[cat] || '');
 
   const defaultChannels: ShareChannel[] = ['whatsapp', 'sms', 'copy', 'system'];
   const orderedShareChannels: ShareChannel[] = winnerChannel
@@ -622,11 +720,7 @@ const cv = attr?.cv || '';
 
       {isOwner && (
         <div className="my-2">
-          <OwnerBookingToggle
-            tagId={cleanId}
-            tagOwnerId={data.user_id}
-            initialEnabled={!!data.bookings_enabled}
-          />
+          <OwnerBookingToggle tagId={cleanId} tagOwnerId={data.user_id} initialEnabled={!!data.bookings_enabled} />
         </div>
       )}
 
@@ -666,10 +760,7 @@ const cv = attr?.cv || '';
         )}
 
         <div className="flex flex-wrap justify-center gap-3 mt-2">
-          <button
-            onClick={handleDownload}
-            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
-          >
+          <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">
             📥 Download QR
           </button>
 
@@ -709,29 +800,32 @@ const cv = attr?.cv || '';
             🖨️ Print QR
           </Link>
 
-          <button
-            onClick={onSupportClick}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm"
-          >
+          <button onClick={onSupportClick} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm">
             💸 Support this Tag
           </button>
         </div>
 
         <div className="text-[11px] text-gray-400 mt-1">
-          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
-          <span className="font-mono">{shareVariant}</span>
+          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant <span className="font-mono">{shareVariant}</span>
         </div>
       </div>
+
+      {/* ✅ Availability blocks (wired to booking + checkout) */}
+      <AvailabilityPublicSection tagId={cleanId} onAction={handleAvailabilityPrimaryAction} />
 
       <ScanAnalytics data={scanChartData} />
 
       <hr className="my-8 border-gray-300" />
-      <h2 id="booking-section" className="text-xl font-semibold mb-4">📅 Booking</h2>
+      <h2 id="booking-section" className="text-xl font-semibold mb-4">
+        📅 Booking
+      </h2>
       <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
       {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
 
       <hr className="my-8 border-gray-300" />
-      <h2 className="text-xl font-semibold mb-4">💬 Feedback</h2>
+      <h2 className="text-xl font-semibold mb-4">
+        💬 Feedback
+      </h2>
 
       {averageRating && (
         <p className="text-sm text-yellow-600 mb-2">
@@ -747,10 +841,7 @@ const cv = attr?.cv || '';
                 ⭐ {f.rating} by {f.name}
               </p>
               {isOwner && (
-                <button
-                  onClick={() => handleDeleteFeedback(f.id)}
-                  className="text-xs text-red-600 hover:underline"
-                >
+                <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-600 hover:underline">
                   🗑 Hide
                 </button>
               )}
@@ -798,4 +889,151 @@ const cv = attr?.cv || '';
   );
 }
 
+function AvailabilityPublicSection({
+  tagId,
+  onAction,
+}: {
+  tagId: string;
+  onAction: (block: AvailabilityBlockRow) => void | Promise<void>;
+}) {
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
+  const [blocks, setBlocks] = useState<AvailabilityBlockRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('public_live_availability')
+        .select('*')
+        .eq('tag_id', tagId)
+        .order('sort_rank', { ascending: false })
+        .order('start_at', { ascending: true })
+        .order('created_at', { ascending: false });
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error(error);
+        setBlocks([]);
+        setLoading(false);
+        return;
+      }
+
+      setBlocks((data ?? []) as AvailabilityBlockRow[]);
+      setLoading(false);
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase, tagId]);
+
+  const { always, upcoming } = useMemo(() => {
+    const a: AvailabilityBlockRow[] = [];
+    const u: AvailabilityBlockRow[] = [];
+    for (const b of blocks) {
+      if (!b.start_at && !b.end_at) a.push(b);
+      else u.push(b);
+    }
+    return { always: a, upcoming: u };
+  }, [blocks]);
+
+  const labelFor = (t: AvailabilityBlockRow['action_type']) => {
+    switch (t) {
+      case 'book':
+        return 'Book';
+      case 'order':
+        return 'Order';
+      case 'reserve':
+        return 'Reserve';
+      case 'enquire':
+        return 'Enquire';
+      case 'pay':
+        return 'Pay';
+      default:
+        return 'Open';
+    }
+  };
+
+  const fmtDT = (iso: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-6 rounded-2xl border p-4">
+        <div className="text-sm opacity-70">Loading availability…</div>
+      </div>
+    );
+  }
+
+  if (!always.length && !upcoming.length) return null;
+
+  return (
+    <div className="mt-6 rounded-2xl border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Availability</h2>
+      </div>
+
+      {always.length > 0 && (
+        <div className="mt-4">
+          <div className="text-sm font-semibold opacity-80">Always available</div>
+          <div className="mt-2 grid gap-2">
+            {always.map((b) => (
+              <div key={b.id} className="rounded-xl border p-3">
+                <div className="font-semibold">{b.title}</div>
+                {b.description && <div className="text-sm opacity-80 mt-1">{b.description}</div>}
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs opacity-70">
+                    {b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total} left`}
+                  </div>
+
+                  <button onClick={() => onAction(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
+                    {labelFor(b.action_type)}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {upcoming.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm font-semibold opacity-80">Next</div>
+          <div className="mt-2 grid gap-2">
+            {upcoming.map((b) => (
+              <div key={b.id} className="rounded-xl border p-3">
+                <div className="font-semibold">{b.title}</div>
+                {b.description && <div className="text-sm opacity-80 mt-1">{b.description}</div>}
+
+                <div className="text-xs opacity-70 mt-2">
+                  {fmtDT(b.start_at)}
+                  {b.end_at ? ` → ${fmtDT(b.end_at)}` : ''}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs opacity-70">
+                    {b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total} left`}
+                  </div>
+
+                  <button onClick={() => onAction(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
+                    {labelFor(b.action_type)}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

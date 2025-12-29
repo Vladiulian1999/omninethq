@@ -12,7 +12,14 @@ export type EventName =
   | 'checkout_success'
   | 'booking_start'
   | 'booking_submitted'
-  | 'booking_accepted';
+  | 'booking_accepted'
+    | 'availability_click'
+  | 'availability_action_initiated'
+  | 'availability_action_pending'
+  | 'availability_action_confirmed'
+  | 'availability_action_failed'
+
+    
 
 export async function logEvent(
   evt: EventName,
