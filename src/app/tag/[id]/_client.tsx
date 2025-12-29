@@ -555,7 +555,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       .insert([
         {
           block_id: block.id,
-          tag_id: cleanId,
+          
           quantity: 1,
           status: initialStatus,
           channel: ch,
@@ -823,7 +823,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </div>
 
       {/* ✅ Availability blocks (wired to booking + checkout) */}
-      <AvailabilityPublicSection tagId={cleanId} onAction={handleAvailabilityPrimaryAction} />
+      
 
       <ScanAnalytics data={scanChartData} />
 
