@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast, { Toaster } from 'react-hot-toast';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import AvailabilityPublicSection, { type AvailabilityBlockRow } from '@/components/AvailabilityPublicSection';
 
 type BlockStatus = 'draft' | 'live' | 'paused' | 'sold_out' | 'expired';
 type ActionType = 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
@@ -27,8 +28,7 @@ type AvailabilityBlock = {
   currency: string;
   visibility: Visibility;
   sort_rank: number;
-    meta: any | null;
-
+  meta: any | null;
   created_at: string;
   updated_at: string;
 };
@@ -66,6 +66,10 @@ function penceFromText(v: string) {
   const n = Number(t);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100);
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
 export default function AvailabilityClient() {
@@ -107,6 +111,12 @@ export default function AvailabilityClient() {
       return;
     }
 
+    if (!isUuid(uid)) {
+      toast.error('Invalid session. Please log out and log back in.');
+      router.push('/login');
+      return;
+    }
+
     const { data, error } = await supabase
       .from('availability_blocks')
       .select('*')
@@ -141,6 +151,13 @@ export default function AvailabilityClient() {
       return;
     }
 
+    // ✅ HARD GUARD: stop uuid errors early
+    if (!sessionUserId || !isUuid(sessionUserId)) {
+      toast.error('Invalid session. Please log out and log back in.');
+      router.push('/login');
+      return;
+    }
+
     const total = clampInt(capacityTotal);
     const isUnlimited = total == null;
     const pence = penceFromText(priceText);
@@ -149,7 +166,6 @@ export default function AvailabilityClient() {
     const startISO = startAt ? new Date(startAt).toISOString() : null;
     const endISO = endAt ? new Date(endAt).toISOString() : null;
 
-    // If user typed end without start, allow it? No. It’s always confusing.
     if (!startISO && endISO) {
       toast.error('Set a start time if you set an end time.');
       return;
@@ -163,7 +179,7 @@ export default function AvailabilityClient() {
       title: string;
     } = {
       tag_id: tagId,
-      owner_id: sessionUserId!, // required by RLS
+       owner_id: sessionUserId, // ✅ guaranteed uuid
       title: t,
       description: description.trim() ? description.trim() : null,
       start_at: startISO,
@@ -175,7 +191,6 @@ export default function AvailabilityClient() {
       price_pence: pence,
       currency,
       sort_rank: 0,
-      // Capacity: unlimited => both null; limited => set both
       capacity_total: isUnlimited ? null : total,
       capacity_remaining: isUnlimited ? null : total,
       meta: null,
@@ -235,11 +250,17 @@ export default function AvailabilityClient() {
   async function duplicateBlock(b: AvailabilityBlock) {
     if (!tagId || !sessionUserId) return;
 
+    if (!isUuid(sessionUserId)) {
+      toast.error('Invalid session. Please log out and log back in.');
+      router.push('/login');
+      return;
+    }
+
     setSaving(true);
 
     const copy: any = {
       tag_id: b.tag_id,
-      owner_id: sessionUserId,
+       owner_id: sessionUserId,
       title: `${b.title} (copy)`,
       description: b.description,
       start_at: b.start_at,
@@ -320,10 +341,7 @@ export default function AvailabilityClient() {
         </div>
 
         <div className="flex gap-2">
-          <Link
-            href={`/tag/${tagId}`}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
+          <Link href={`/tag/${tagId}`} className="px-3 py-2 rounded-xl border hover:opacity-80">
             View Tag
           </Link>
           <button
@@ -474,9 +492,7 @@ export default function AvailabilityClient() {
           >
             Add
           </button>
-          <p className="text-xs opacity-70">
-            Keep it minimal. The goal is: update availability fast, not write essays.
-          </p>
+          <p className="text-xs opacity-70">Keep it minimal. The goal is: update availability fast, not write essays.</p>
         </div>
       </div>
 
@@ -537,13 +553,7 @@ function Section(props: {
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3">
           {blocks.map((b) => (
-            <BlockCard
-              key={b.id}
-              b={b}
-              onUpdate={props.onUpdate}
-              onDelete={props.onDelete}
-              onDuplicate={props.onDuplicate}
-            />
+            <BlockCard key={b.id} b={b} onUpdate={props.onUpdate} onDelete={props.onDelete} onDuplicate={props.onDuplicate} />
           ))}
         </div>
       )}
@@ -563,12 +573,10 @@ function BlockCard(props: {
   const start = fmtDT(b.start_at);
   const end = fmtDT(b.end_at);
 
-  const cap =
-    b.capacity_total == null
-      ? 'Unlimited'
-      : `${b.capacity_remaining ?? 0}/${b.capacity_total}`;
+  const cap = b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total}`;
 
-  const isSoldOut = b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
+  const isSoldOut =
+    b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
   return (
     <div className="rounded-2xl border p-4">
@@ -576,54 +584,40 @@ function BlockCard(props: {
         <div className="min-w-[240px]">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{b.title}</h3>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">
-              {b.status}
-            </span>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">
-              {b.action_type}
-            </span>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">
-              {b.visibility}
-            </span>
+            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
+            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
+            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
           </div>
 
           {b.description && <p className="text-sm opacity-80 mt-1">{b.description}</p>}
 
           <div className="text-sm opacity-80 mt-2 space-y-1">
             <div>Time: {start ? `${start}${end ? ` → ${end}` : ''}` : 'Always'}</div>
-            <div>Capacity: {cap}{isSoldOut ? ' (sold out)' : ''}</div>
+            <div>
+              Capacity: {cap}
+              {isSoldOut ? ' (sold out)' : ''}
+            </div>
             {money && <div>Price: {money}</div>}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() =>
-              onUpdate(b.id, { status: b.status === 'live' ? 'paused' : 'live' })
-            }
+            onClick={() => onUpdate(b.id, { status: b.status === 'live' ? 'paused' : 'live' })}
             className="px-3 py-2 rounded-xl border hover:opacity-80"
           >
             {b.status === 'live' ? 'Pause' : 'Go live'}
           </button>
 
-          <button
-            onClick={() => onUpdate(b.id, { status: 'sold_out' })}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
+          <button onClick={() => onUpdate(b.id, { status: 'sold_out' })} className="px-3 py-2 rounded-xl border hover:opacity-80">
             Sold out
           </button>
 
-          <button
-            onClick={() => onDuplicate(b)}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
+          <button onClick={() => onDuplicate(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
             Duplicate
           </button>
 
-          <button
-            onClick={() => onDelete(b.id)}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
+          <button onClick={() => onDelete(b.id)} className="px-3 py-2 rounded-xl border hover:opacity-80">
             Delete
           </button>
         </div>

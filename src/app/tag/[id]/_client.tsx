@@ -14,6 +14,7 @@ import BookingRequestsList from '@/components/BookingRequestsList';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 import { logEvent } from '@/lib/analytics';
 
+
 type FeedbackEntry = {
   id: string;
   tag_id: string;
