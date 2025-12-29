@@ -760,6 +760,17 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         )}
 
         <div className="flex flex-wrap justify-center gap-3 mt-2">
+          {/* ✅ Step 1: Owner-only entry point */}
+          {isOwner && (
+            <button
+              onClick={() => router.push(`/tag/${encodeURIComponent(cleanId)}/availability`)}
+              className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
+              title="Owner only"
+            >
+              🔒 Manage Availability
+            </button>
+          )}
+
           <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">
             📥 Download QR
           </button>
