@@ -13,7 +13,7 @@ import BookingRequestForm from '@/components/BookingRequestForm';
 import BookingRequestsList from '@/components/BookingRequestsList';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 import { logEvent } from '@/lib/analytics';
-
+import AvailabilityPublicSection, { type AvailabilityBlockRow } from '@/components/AvailabilityPublicSection';
 
 type FeedbackEntry = {
   id: string;
@@ -134,7 +134,6 @@ function getLastAttribution(tagId: string): { ch?: string | null; cv?: string | 
 function buildShareMessage(opts: { title: string; url: string; channel: ShareChannel; variant: 'A' | 'B' }) {
   const { title, url, channel, variant } = opts;
 
-  // Keep it short. People don’t read.
   if (channel === 'whatsapp') {
     return variant === 'A'
       ? `Quick one — check this out:\n${title}\n${url}`
@@ -151,7 +150,6 @@ function buildShareMessage(opts: { title: string; url: string; channel: ShareCha
       : `Local service on OmniNet:\n${title}\n${url}`;
   }
 
-  // system share
   return variant === 'A' ? `Check this out: ${title}` : `Local service: ${title}`;
 }
 
@@ -256,19 +254,6 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
   return null;
 }
 
-type AvailabilityBlockRow = {
-  id: string;
-  action_type: 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
-  title: string;
-  description: string | null;
-  price_pence: number | null;
-  currency: string;
-  capacity_total: number | null;
-  capacity_remaining: number | null;
-  start_at: string | null;
-  end_at: string | null;
-};
-
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
@@ -290,16 +275,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const qrRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // Winner channel state
   const [winnerChannel, setWinnerChannel] = useState<ShareChannel | null>(null);
 
-  // Share-copy A/B variant (sticky per device/tag/channel)
   const shareCopyVariant = useMemo(() => {
-    // key includes tagId so different tags can converge to different copy
     return assignVariant(SHARE_COPY_EXP_ID, `${cleanId}:share_copy`, SHARE_COPY_VARIANTS);
   }, [cleanId]);
 
-  // ---------- Basic data ----------
   useEffect(() => {
     if (!cleanId || cleanId === 'id' || cleanId === 'undefined' || cleanId === 'null') {
       router.replace('/explore');
@@ -344,7 +325,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     logScan();
   }, [cleanId, supabase]);
 
-  // ---------- Winner channel fetch ----------
   useEffect(() => {
     let mounted = true;
 
@@ -376,7 +356,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
   }, [cleanId, supabase]);
 
-  // ---------- Attribution on open ----------
   useEffect(() => {
     const ch = getQueryParam('ch');
     const cv = getQueryParam('cv');
@@ -385,7 +364,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
   }, [cleanId]);
 
-  // Log share_open once per (tag, ch, cv)
   useEffect(() => {
     const ch = getQueryParam('ch');
     const cv = getQueryParam('cv');
@@ -407,7 +385,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }).catch(() => {});
   }, [cleanId]);
 
-  // ---------- Analytics ----------
   useEffect(() => {
     logEvent('view_tag', { tag_id: cleanId }).catch(() => {});
   }, [cleanId]);
@@ -432,12 +409,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
   };
 
-  // ---------- CTA + payments ----------
   async function startCheckout(id: string, amountCents = 500) {
     try {
       const refCode = localStorage.getItem('referral_code') || '';
-
-      // include attribution for analytics (NOT Stripe yet)
       const attr = getLastAttribution(cleanId);
       const ch = attr?.ch || '';
       const cv = attr?.cv || '';
@@ -479,7 +453,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     startCheckout(cleanId, 500);
   };
 
-  // ---------- Share handlers with A/B copy ----------
   const handleDownload = async () => {
     if (!qrRef.current) return;
     const dataUrl = await toPng(qrRef.current);
@@ -490,7 +463,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     toast.success('📥 QR code downloaded!');
   };
 
-  const shareVariant = shareCopyVariant; // 'A' | 'B'
+  const shareVariant = shareCopyVariant;
   const title = data?.title || 'OmniNet Tag';
 
   const sendShare = async (channel: ShareChannel) => {
@@ -498,7 +471,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const url = buildShareUrl(baseTagUrl, channel, cv);
     const text = buildShareMessage({ title, url, channel, variant: cv });
 
-    // log click
     await logEvent('share_click', {
       tag_id: cleanId,
       channel,
@@ -510,7 +482,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       },
     }).catch(() => {});
 
-    // Execute action
     if (channel === 'whatsapp') {
       const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
       window.open(wa, '_blank');
@@ -529,7 +500,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       return;
     }
 
-    // system share
     try {
       const shareData = { title, text, url };
       if ((navigator as any).share) {
@@ -543,7 +513,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
   };
 
-  // ---------- Availability action wiring (BOOK + PAY) ----------
   async function createAvailabilityAction(block: AvailabilityBlockRow, initialStatus: 'initiated' | 'pending') {
     const ref = localStorage.getItem('referral_code') || null;
     const attr = getLastAttribution(cleanId);
@@ -555,7 +524,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       .insert([
         {
           block_id: block.id,
-          
           quantity: 1,
           status: initialStatus,
           channel: ch,
@@ -572,7 +540,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
     const refCode = localStorage.getItem('referral_code') || '';
-
     const attr = getLastAttribution(cleanId);
     const ch = attr?.ch || '';
     const cv = attr?.cv || '';
@@ -612,8 +579,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     else toast.error('❌ Checkout failed');
   }
 
-  async function handleAvailabilityPrimaryAction(blockAny: any) {
-    const block = blockAny as AvailabilityBlockRow;
+  async function handleAvailabilityPrimaryAction(blockAny: AvailabilityBlockRow) {
+    const block = blockAny;
 
     try {
       await logEvent('availability_click', {
@@ -625,7 +592,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         },
       }).catch(() => {});
 
-      // BOOK / RESERVE / ENQUIRE → create action + scroll booking section
       if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
         await createAvailabilityAction(block, 'pending');
         toast.success('✅ Added. Continue below to book/request.');
@@ -633,7 +599,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         return;
       }
 
-      // PAY / ORDER → create action + checkout
       if (block.action_type === 'pay' || block.action_type === 'order') {
         const actionId = await createAvailabilityAction(block, 'initiated');
         await startCheckoutForBlock(block, actionId);
@@ -647,7 +612,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
   }
 
-  // ---------- Feedback handlers ----------
   const handleDeleteFeedback = async (id: string) => {
     if (!confirm('Are you sure you want to hide this comment?')) return;
     const { error } = await supabase.from('feedback').update({ hidden: true }).eq('id', id);
@@ -679,7 +643,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     } else toast.error('❌ Failed to submit feedback');
   };
 
-  // ---------- UI ----------
   const averageRating = feedback.length
     ? (feedback.reduce((s, f) => s + (f.rating || 0), 0) / feedback.length).toFixed(1)
     : null;
@@ -707,7 +670,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     ? [winnerChannel, ...defaultChannels.filter((c) => c !== winnerChannel)]
     : defaultChannels;
 
-  // QR uses copy channel + variant so scans are attributable
   const tagUrlForQR = buildShareUrl(baseTagUrl, 'copy', shareVariant);
 
   return (
@@ -761,7 +723,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         )}
 
         <div className="flex flex-wrap justify-center gap-3 mt-2">
-          {/* ✅ Step 1: Owner-only entry point */}
           {isOwner && (
             <button
               onClick={() => router.push(`/tag/${encodeURIComponent(cleanId)}/availability`)}
@@ -823,7 +784,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       </div>
 
       {/* ✅ Availability blocks (wired to booking + checkout) */}
-      
+      <AvailabilityPublicSection tagId={cleanId} onAction={handleAvailabilityPrimaryAction} />
 
       <ScanAnalytics data={scanChartData} />
 
@@ -897,155 +858,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           Submit Feedback
         </button>
       </form>
-    </div>
-  );
-}
-
-function AvailabilityPublicSection({
-  tagId,
-  onAction,
-}: {
-  tagId: string;
-  onAction: (block: AvailabilityBlockRow) => void | Promise<void>;
-}) {
-  const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const [blocks, setBlocks] = useState<AvailabilityBlockRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      setLoading(true);
-
-      const { data, error } = await supabase
-        .from('public_live_availability')
-        .select('*')
-        .eq('tag_id', tagId)
-        .order('sort_rank', { ascending: false })
-        .order('start_at', { ascending: true })
-        .order('created_at', { ascending: false });
-
-      if (!mounted) return;
-
-      if (error) {
-        console.error(error);
-        setBlocks([]);
-        setLoading(false);
-        return;
-      }
-
-      setBlocks((data ?? []) as AvailabilityBlockRow[]);
-      setLoading(false);
-    }
-
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, [supabase, tagId]);
-
-  const { always, upcoming } = useMemo(() => {
-    const a: AvailabilityBlockRow[] = [];
-    const u: AvailabilityBlockRow[] = [];
-    for (const b of blocks) {
-      if (!b.start_at && !b.end_at) a.push(b);
-      else u.push(b);
-    }
-    return { always: a, upcoming: u };
-  }, [blocks]);
-
-  const labelFor = (t: AvailabilityBlockRow['action_type']) => {
-    switch (t) {
-      case 'book':
-        return 'Book';
-      case 'order':
-        return 'Order';
-      case 'reserve':
-        return 'Reserve';
-      case 'enquire':
-        return 'Enquire';
-      case 'pay':
-        return 'Pay';
-      default:
-        return 'Open';
-    }
-  };
-
-  const fmtDT = (iso: string | null) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString();
-  };
-
-  if (loading) {
-    return (
-      <div className="mt-6 rounded-2xl border p-4">
-        <div className="text-sm opacity-70">Loading availability…</div>
-      </div>
-    );
-  }
-
-  if (!always.length && !upcoming.length) return null;
-
-  return (
-    <div className="mt-6 rounded-2xl border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Availability</h2>
-      </div>
-
-      {always.length > 0 && (
-        <div className="mt-4">
-          <div className="text-sm font-semibold opacity-80">Always available</div>
-          <div className="mt-2 grid gap-2">
-            {always.map((b) => (
-              <div key={b.id} className="rounded-xl border p-3">
-                <div className="font-semibold">{b.title}</div>
-                {b.description && <div className="text-sm opacity-80 mt-1">{b.description}</div>}
-
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs opacity-70">
-                    {b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total} left`}
-                  </div>
-
-                  <button onClick={() => onAction(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
-                    {labelFor(b.action_type)}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {upcoming.length > 0 && (
-        <div className="mt-6">
-          <div className="text-sm font-semibold opacity-80">Next</div>
-          <div className="mt-2 grid gap-2">
-            {upcoming.map((b) => (
-              <div key={b.id} className="rounded-xl border p-3">
-                <div className="font-semibold">{b.title}</div>
-                {b.description && <div className="text-sm opacity-80 mt-1">{b.description}</div>}
-
-                <div className="text-xs opacity-70 mt-2">
-                  {fmtDT(b.start_at)}
-                  {b.end_at ? ` → ${fmtDT(b.end_at)}` : ''}
-                </div>
-
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs opacity-70">
-                    {b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total} left`}
-                  </div>
-
-                  <button onClick={() => onAction(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
-                    {labelFor(b.action_type)}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
