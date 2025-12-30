@@ -528,9 +528,24 @@ async function copyToClipboard(text: string): Promise<boolean> {
     }
 
    if (channel === 'copy') {
-  const ok = await copyToClipboard(url); // copy the URL, not the whole message
-  if (ok) toast.success('🔗 Copied!');
-  else toast.error('Copy failed. Try again.');
+  const ok = await copyToClipboard(url);
+  if (ok) {
+    toast.success('🔗 Copied!');
+    return;
+  }
+
+  // iPhone best fallback: native share sheet
+  try {
+    if ((navigator as any).share) {
+      await (navigator as any).share({ title, url });
+      toast.success('✅ Shared');
+      return;
+    }
+  } catch {}
+
+  // last resort
+  window.prompt('Copy this link:', url);
+  toast('Tap and hold to copy');
   return;
 }
 
