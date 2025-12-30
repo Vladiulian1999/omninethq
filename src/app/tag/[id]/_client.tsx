@@ -466,6 +466,34 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     link.click();
     toast.success('📥 QR code downloaded!');
   };
+async function copyToClipboard(text: string): Promise<boolean> {
+  // Modern path
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {}
+
+  // Fallback path (iOS/Safari)
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', 'true');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
   const shareVariant = shareCopyVariant;
   const title = data?.title || 'OmniNet Tag';
@@ -500,16 +528,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
 
    if (channel === 'copy') {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.success('🔗 Copied!');
-  } catch {
-    // iOS/Safari fallback
-    window.prompt('Copy this link:', url);
-    toast('Tap and hold to copy');
-  }
+  const ok = await copyToClipboard(url); // copy the URL, not the whole message
+  if (ok) toast.success('🔗 Copied!');
+  else toast.error('Copy failed. Try again.');
   return;
 }
+
 
 
     try {

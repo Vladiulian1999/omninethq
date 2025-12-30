@@ -1,13 +1,8 @@
-import { Suspense } from 'react';
-import TagClient from './_client';
-
-export const runtime = 'nodejs';
+import PrintClient from './_client';
 
 export default function Page({ params }: { params: { id: string } }) {
-  return (
-    <Suspense>
-      <TagClient tagId={params.id} />
-    </Suspense>
-  );
+  const raw = decodeURIComponent(params.id || '').trim();
+  const cleanId = raw.startsWith('tag/') ? raw.slice(4) : raw;
+  return <PrintClient tagId={cleanId} />;
 }
 
