@@ -565,29 +565,24 @@ async function copyToClipboard(text: string): Promise<boolean> {
   };
 
   async function createAvailabilityAction(block: AvailabilityBlockRow, initialStatus: 'initiated' | 'pending') {
-    const ref = localStorage.getItem('referral_code') || null;
-    const attr = getLastAttribution(cleanId);
-    const ch = attr?.ch || null;
-    const cv = attr?.cv || null;
+  if (!block?.id) throw new Error('Missing block id');
 
-    const { data: inserted, error } = await supabase
-      .from('availability_actions')
-      .insert([
-        {
-          block_id: block.id,
-          quantity: 1,
-          status: initialStatus,
-          channel: ch,
-          referral_code: ref,
-          meta: { copy_variant: cv },
-        },
-      ])
-      .select('id')
-      .single();
+  const { data: inserted, error } = await supabase
+    .from('availability_actions')
+    .insert([
+      {
+        block_id: block.id,
+        quantity: 1,
+        status: initialStatus,
+      },
+    ])
+    .select('id')
+    .single();
 
-    if (error) throw error;
-    return inserted.id as string;
-  }
+  if (error) throw error;
+  return inserted.id as string;
+}
+
 
   async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
     const refCode = localStorage.getItem('referral_code') || '';
