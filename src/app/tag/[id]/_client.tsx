@@ -256,7 +256,11 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const cleanId = useMemo(() => decodeURIComponent(tagId || '').trim(), [tagId]);
+  const cleanId = useMemo(() => {
+  const raw = decodeURIComponent(tagId || '').trim();
+  return raw.startsWith('tag/') ? raw.slice(4) : raw;
+}, [tagId]);
+
 
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId, VARIANTS), [cleanId]);
   const impressionSent = useRef(false);
@@ -482,11 +486,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       },
     }).catch(() => {});
 
-    if (channel === 'whatsapp') {
-      const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
-      window.open(wa, '_blank');
-      return;
-    }
+   if (channel === 'whatsapp') {
+  const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.location.href = wa;
+  return;
+}
+
 
     if (channel === 'sms') {
       const smsUrl = `sms:?&body=${encodeURIComponent(text)}`;
@@ -494,11 +499,18 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       return;
     }
 
-    if (channel === 'copy') {
-      await navigator.clipboard.writeText(text);
-      toast.success('🔗 Copied!');
-      return;
-    }
+   if (channel === 'copy') {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success('🔗 Copied!');
+  } catch {
+    // iOS/Safari fallback
+    window.prompt('Copy this link:', url);
+    toast('Tap and hold to copy');
+  }
+  return;
+}
+
 
     try {
       const shareData = { title, text, url };
