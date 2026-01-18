@@ -257,10 +257,9 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => {
-  const raw = decodeURIComponent(tagId || '').trim();
-  return raw.startsWith('tag/') ? raw.slice(4) : raw;
-}, [tagId]);
-
+    const raw = decodeURIComponent(tagId || '').trim();
+    return raw.startsWith('tag/') ? raw.slice(4) : raw;
+  }, [tagId]);
 
   const variant = useMemo(() => assignVariant(EXP_ID, cleanId, VARIANTS), [cleanId]);
   const impressionSent = useRef(false);
@@ -466,34 +465,33 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     link.click();
     toast.success('📥 QR code downloaded!');
   };
-async function copyToClipboard(text: string): Promise<boolean> {
-  // Modern path
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {}
 
-  // Fallback path (iOS/Safari)
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', 'true');
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '-9999px';
-    document.body.appendChild(ta);
+  async function copyToClipboard(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
 
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length);
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'true');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
 
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
   }
-}
 
   const shareVariant = shareCopyVariant;
   const title = data?.title || 'OmniNet Tag';
@@ -514,12 +512,11 @@ async function copyToClipboard(text: string): Promise<boolean> {
       },
     }).catch(() => {});
 
-   if (channel === 'whatsapp') {
-  const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
-  window.location.href = wa;
-  return;
-}
-
+    if (channel === 'whatsapp') {
+      const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.location.href = wa;
+      return;
+    }
 
     if (channel === 'sms') {
       const smsUrl = `sms:?&body=${encodeURIComponent(text)}`;
@@ -527,29 +524,25 @@ async function copyToClipboard(text: string): Promise<boolean> {
       return;
     }
 
-   if (channel === 'copy') {
-  const ok = await copyToClipboard(url);
-  if (ok) {
-    toast.success('🔗 Copied!');
-    return;
-  }
+    if (channel === 'copy') {
+      const ok = await copyToClipboard(url);
+      if (ok) {
+        toast.success('🔗 Copied!');
+        return;
+      }
 
-  // iPhone best fallback: native share sheet
-  try {
-    if ((navigator as any).share) {
-      await (navigator as any).share({ title, url });
-      toast.success('✅ Shared');
+      try {
+        if ((navigator as any).share) {
+          await (navigator as any).share({ title, url });
+          toast.success('✅ Shared');
+          return;
+        }
+      } catch {}
+
+      window.prompt('Copy this link:', url);
+      toast('Tap and hold to copy');
       return;
     }
-  } catch {}
-
-  // last resort
-  window.prompt('Copy this link:', url);
-  toast('Tap and hold to copy');
-  return;
-}
-
-
 
     try {
       const shareData = { title, text, url };
@@ -564,25 +557,32 @@ async function copyToClipboard(text: string): Promise<boolean> {
     }
   };
 
-  async function createAvailabilityAction(block: AvailabilityBlockRow, initialStatus: 'initiated' | 'pending') {
-  if (!block?.id) throw new Error('Missing block id');
+  /** Stable idempotency per anon user + block + action type + qty */
+  function makeAvailabilityIdempotencyKey(block: AvailabilityBlockRow, quantity: number) {
+    const anon = getAnonId();
+    const at = (block?.action_type as any) || 'unknown';
+    return `avail:${cleanId}:${block.id}:${at}:${quantity}:${anon}`;
+  }
 
-  const { data: inserted, error } = await supabase
-    .from('availability_actions')
-    .insert([
-      {
-        block_id: block.id,
-        quantity: 1,
-        status: initialStatus,
-      },
-    ])
-    .select('id')
-    .single();
+  async function claimAvailability(block: AvailabilityBlockRow, quantity = 1) {
+    const idempotencyKey = makeAvailabilityIdempotencyKey(block, quantity);
 
-  if (error) throw error;
-  return inserted.id as string;
-}
+    const { data, error } = await supabase.rpc('claim_availability_block', {
+      p_block_id: block.id,
+      p_idempotency_key: idempotencyKey,
+      p_quantity: quantity,
+      p_customer_name: null,
+      p_customer_contact: null,
+      p_channel: 'qr',
+      p_referral_code: localStorage.getItem('referral_code'),
+      p_meta: { source: 'tag_page', action_type: block.action_type },
+    });
 
+    if (error) throw error;
+    const row = (data as any)?.[0];
+    if (!row?.action_id) throw new Error('Claim failed (no action_id returned).');
+    return row as { action_id: string; action_status: string; block_id: string; block_remaining: number };
+  }
 
   async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
     const refCode = localStorage.getItem('referral_code') || '';
@@ -638,16 +638,18 @@ async function copyToClipboard(text: string): Promise<boolean> {
         },
       }).catch(() => {});
 
+      // 1) Always claim atomically first (consumes capacity once)
+      const claim = await claimAvailability(block, 1);
+
+      // 2) Now route based on action type
       if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
-        await createAvailabilityAction(block, 'pending');
-        toast.success('✅ Added. Continue below to book/request.');
+        toast.success('✅ Slot claimed. Continue below to complete your request.');
         document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
         return;
       }
 
       if (block.action_type === 'pay' || block.action_type === 'order') {
-        const actionId = await createAvailabilityAction(block, 'initiated');
-        await startCheckoutForBlock(block, actionId);
+        await startCheckoutForBlock(block, claim.action_id);
         return;
       }
 
@@ -744,7 +746,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
       <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
       <p className="text-xs text-gray-500 mb-1">🔢 {scanCount} scans</p>
-      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">👁️ {data.views} views</p>}
+      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">👁️ {scanCount} views</p>}
 
       <div className="my-4 flex justify-center">
         <button
@@ -825,11 +827,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
         </div>
 
         <div className="text-[11px] text-gray-400 mt-1">
-          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant <span className="font-mono">{shareVariant}</span>
+          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
+          <span className="font-mono">{shareVariant}</span>
         </div>
       </div>
 
-      {/* ✅ Availability blocks (wired to booking + checkout) */}
+      {/* ✅ Availability blocks (atomic claim + optional Stripe) */}
       <AvailabilityPublicSection tagId={cleanId} onAction={handleAvailabilityPrimaryAction} />
 
       <ScanAnalytics data={scanChartData} />

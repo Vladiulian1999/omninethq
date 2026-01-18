@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast, { Toaster } from 'react-hot-toast';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
-import AvailabilityPublicSection, { type AvailabilityBlockRow } from '@/components/AvailabilityPublicSection';
+
 
 type BlockStatus = 'draft' | 'live' | 'paused' | 'sold_out' | 'expired';
 type ActionType = 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
