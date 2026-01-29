@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
+type BlockStatus = 'draft' | 'live' | 'paused' | 'sold_out' | 'expired';
+type Visibility = 'public' | 'unlisted' | 'private';
+
 export type AvailabilityBlockRow = {
   id: string;
   tag_id?: string;
@@ -15,6 +18,9 @@ export type AvailabilityBlockRow = {
   capacity_remaining: number | null;
   start_at: string | null;
   end_at: string | null;
+  status?: BlockStatus | null;
+  visibility?: Visibility | null;
+  last_taken_at?: string | null;
   // view may include these:
   sort_rank?: number | null;
   created_at?: string | null;
@@ -23,9 +29,11 @@ export type AvailabilityBlockRow = {
 export default function AvailabilityPublicSection({
   tagId,
   onAction,
+  refreshKey,
 }: {
   tagId: string;
   onAction: (block: AvailabilityBlockRow) => void | Promise<void>;
+  refreshKey?: number;
 }) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [blocks, setBlocks] = useState<AvailabilityBlockRow[]>([]);
@@ -54,7 +62,7 @@ export default function AvailabilityPublicSection({
         return;
       }
 
-      setBlocks((data ?? []) as AvailabilityBlockRow[]);
+      setBlocks((data ? []) as AvailabilityBlockRow[]);
       setLoading(false);
     }
 
@@ -62,17 +70,7 @@ export default function AvailabilityPublicSection({
     return () => {
       mounted = false;
     };
-  }, [supabase, tagId]);
-
-  const { always, upcoming } = useMemo(() => {
-    const a: AvailabilityBlockRow[] = [];
-    const u: AvailabilityBlockRow[] = [];
-    for (const b of blocks) {
-      if (!b.start_at && !b.end_at) a.push(b);
-      else u.push(b);
-    }
-    return { always: a, upcoming: u };
-  }, [blocks]);
+  }, [supabase, tagId, refreshKey]);
 
   const isLimited = (b: AvailabilityBlockRow) => b.capacity_total != null;
 
@@ -84,7 +82,7 @@ export default function AvailabilityPublicSection({
 
   const capacityText = (b: AvailabilityBlockRow) => {
     if (!isLimited(b)) return 'Unlimited';
-    const left = leftCount(b) ?? 0;
+    const left = leftCount(b) ? 0;
     return left <= 3 ? `Only ${left} left` : `${left} left`;
   };
 
@@ -98,7 +96,7 @@ export default function AvailabilityPublicSection({
     try {
       return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(amount);
     } catch {
-      const sym = cur === 'GBP' ? '£' : '';
+      const sym = cur === 'GBP' ? '?' : '';
       return `${sym}${amount.toFixed(2)}`;
     }
   };
@@ -117,8 +115,8 @@ export default function AvailabilityPublicSection({
         ? 'Pay now'
         : 'Open';
 
-    const price = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
-    return price ? `${base} · ${price}` : base;
+    const price = isPaidAction(b.action_type) ? formatMoney(b.price_pence ? null, b.currency || 'GBP') : null;
+    return price ? `${base} ? ${price}` : base;
   };
 
   const fmtFriendly = (iso: string | null) => {
@@ -140,24 +138,80 @@ export default function AvailabilityPublicSection({
     return `${day} ${time}`;
   };
 
+  const isAllowed = (b: AvailabilityBlockRow) => {
+    const visOk = !b.visibility || b.visibility === 'public' || b.visibility === 'unlisted';
+    const statusOk = !b.status || b.status === 'live' || b.status === 'sold_out';
+    return visOk && statusOk;
+  };
+
+  const isEnded = (b: AvailabilityBlockRow) => {
+    if (!b.end_at) return false;
+    const t = new Date(b.end_at).getTime();
+    return !isNaN(t) && t < Date.now();
+  };
+
+  const minutesAgoText = (iso?: string | null) => {
+    if (!iso) return 'Taken recently';
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return 'Taken recently';
+    const diffMin = Math.max(1, Math.round((Date.now() - t) / 60000));
+    return `Taken ${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  };
+
+  const liveBlocks = useMemo(() => {
+    return blocks.filter((b) => {
+      if (!isAllowed(b) || isEnded(b)) return false;
+      const rem = typeof b.capacity_remaining === 'number' ? b.capacity_remaining : null;
+      return rem == null || rem > 0;
+    });
+  }, [blocks]);
+
+  const soldOutBlocks = useMemo(() => {
+    const arr = blocks.filter((b) => {
+      if (!isAllowed(b) || isEnded(b)) return false;
+      const rem = typeof b.capacity_remaining === 'number' ? b.capacity_remaining : null;
+      return rem != null && rem <= 0;
+    });
+
+    const getTakenTs = (b: AvailabilityBlockRow) => {
+      const t = b.last_taken_at ? new Date(b.last_taken_at).getTime() : NaN;
+      if (!isNaN(t)) return t;
+      const c = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return isNaN(c) ? 0 : c;
+    };
+
+    arr.sort((a, c) => getTakenTs(c) - getTakenTs(a));
+    return arr.slice(0, 3);
+  }, [blocks]);
+
+  const { always, upcoming } = useMemo(() => {
+    const a: AvailabilityBlockRow[] = [];
+    const u: AvailabilityBlockRow[] = [];
+    for (const b of liveBlocks) {
+      if (!b.start_at && !b.end_at) a.push(b);
+      else u.push(b);
+    }
+    return { always: a, upcoming: u };
+  }, [liveBlocks]);
+
   if (loading) {
     return (
       <div className="mt-6 rounded-2xl border p-4">
-        <div className="text-sm opacity-70">Loading availability…</div>
+        <div className="text-sm opacity-70">Loading availability?</div>
       </div>
     );
   }
 
-  if (!always.length && !upcoming.length) return null;
+  if (!always.length && !upcoming.length && soldOutBlocks.length === 0) return null;
 
   const Card = ({ b }: { b: AvailabilityBlockRow }) => {
     const cap = capacityText(b);
-    const low = isLimited(b) && (leftCount(b) ?? 0) <= 3;
+    const low = isLimited(b) && (leftCount(b) ? 0) <= 3;
 
     const start = fmtFriendly(b.start_at);
     const end = fmtFriendly(b.end_at);
 
-    const money = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
+    const money = isPaidAction(b.action_type) ? formatMoney(b.price_pence ? null, b.currency || 'GBP') : null;
 
     return (
       <div className="rounded-2xl border p-4 bg-white shadow-sm text-left">
@@ -172,8 +226,8 @@ export default function AvailabilityPublicSection({
 
         {(start || end) && (
           <div className="text-xs opacity-70 mt-2">
-            {start || '—'}
-            {end ? ` → ${end}` : ''}
+            {start || 'TBA'}
+            {end ? ` ? ${end}` : ''}
           </div>
         )}
 
@@ -187,6 +241,15 @@ export default function AvailabilityPublicSection({
             {labelFor(b)}
           </button>
         </div>
+      </div>
+    );
+  };
+
+  const SoldOutCard = ({ b }: { b: AvailabilityBlockRow }) => {
+    return (
+      <div className="rounded-2xl border p-4 bg-white text-left">
+        <div className="font-semibold">{b.title}</div>
+        <div className="text-sm opacity-70 mt-1">{minutesAgoText(b.last_taken_at)}</div>
       </div>
     );
   };
@@ -218,6 +281,17 @@ export default function AvailabilityPublicSection({
           <div className="mt-2 grid gap-3">
             {upcoming.map((b) => (
               <Card key={b.id} b={b} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {soldOutBlocks.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm font-semibold opacity-80">Just Missed</div>
+          <div className="mt-2 grid gap-3">
+            {soldOutBlocks.map((b) => (
+              <SoldOutCard key={b.id} b={b} />
             ))}
           </div>
         </div>
