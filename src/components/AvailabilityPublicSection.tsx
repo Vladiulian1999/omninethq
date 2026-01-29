@@ -96,8 +96,8 @@ export default function AvailabilityPublicSection({
     try {
       return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(amount);
     } catch {
-      const sym = cur === 'GBP' ? '£' : '';
-      return `${sym}${amount.toFixed(2)}`;
+      const prefix = cur === 'GBP' ? 'GBP ' : `${cur} `;
+      return `${prefix}${amount.toFixed(2)}`;
     }
   };
 
@@ -116,7 +116,7 @@ export default function AvailabilityPublicSection({
         : 'Open';
 
     const price = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
-    return price ? `${base} · ${price}` : base;
+    return price ? `${base} - ${price}` : base;
   };
 
   const fmtFriendly = (iso: string | null) => {
@@ -197,7 +197,7 @@ export default function AvailabilityPublicSection({
   if (loading) {
     return (
       <div className="mt-6 rounded-2xl border p-4">
-        <div className="text-sm opacity-70">Loading availability…</div>
+        <div className="text-sm opacity-70">Loading availability...</div>
       </div>
     );
   }
@@ -227,7 +227,7 @@ export default function AvailabilityPublicSection({
         {(start || end) && (
           <div className="text-xs opacity-70 mt-2">
             {start || 'TBA'}
-            {end ? ` → ${end}` : ''}
+            {end ? ` to ${end}` : ''}
           </div>
         )}
 
@@ -256,22 +256,13 @@ export default function AvailabilityPublicSection({
 
   return (
     <div className="mt-6 rounded-2xl border p-4 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Live availability</h2>
-        <div className="text-xs opacity-70 flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-green-600" />
-          Updated live
-        </div>
-      </div>
+      <div className="text-sm font-semibold opacity-80">Available now</div>
 
       {always.length > 0 && (
-        <div className="mt-4">
-          <div className="text-sm font-semibold opacity-80">Available now</div>
-          <div className="mt-2 grid gap-3">
-            {always.map((b) => (
-              <Card key={b.id} b={b} />
-            ))}
-          </div>
+        <div className="mt-2 grid gap-3">
+          {always.map((b) => (
+            <Card key={b.id} b={b} />
+          ))}
         </div>
       )}
 
@@ -288,7 +279,8 @@ export default function AvailabilityPublicSection({
 
       {soldOutBlocks.length > 0 && (
         <div className="mt-6">
-          <div className="text-sm font-semibold opacity-80">Just Missed</div>
+          <div className="text-sm font-semibold opacity-80">Just missed</div>
+          <div className="text-xs opacity-70 mt-1">Someone else got there first.</div>
           <div className="mt-2 grid gap-3">
             {soldOutBlocks.map((b) => (
               <SoldOutCard key={b.id} b={b} />
@@ -299,3 +291,4 @@ export default function AvailabilityPublicSection({
     </div>
   );
 }
+

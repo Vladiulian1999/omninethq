@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useState, useMemo, type FormEvent } from 'react';
 import QRCode from 'react-qr-code';
@@ -132,25 +132,25 @@ function getLastAttribution(tagId: string): { ch?: string | null; cv?: string | 
 
 /** Message templates per channel + variant */
 function buildShareMessage(opts: { title: string; url: string; channel: ShareChannel; variant: 'A' | 'B' }) {
-  const { title, url, channel, variant } = opts;
+  const { title, url, channel } = opts;
 
   if (channel === 'whatsapp') {
-    return variant === 'A'
-      ? `Quick one 👉 check this out:\n${title}\n${url}`
-      : `This local service is worth saving:\n${title}\n${url}`;
+    return `Tag link:
+${title}
+${url}`;
   }
 
   if (channel === 'sms') {
-    return variant === 'A' ? `Check this out: ${title} 👉 ${url}` : `Local help/service: ${title} 👉 ${url}`;
+    return `Tag link: ${title} ${url}`;
   }
 
   if (channel === 'copy') {
-    return variant === 'A'
-      ? `Check this out on OmniNet:\n${title}\n${url}`
-      : `Local service on OmniNet:\n${title}\n${url}`;
+    return `Tag link:
+${title}
+${url}`;
   }
 
-  return variant === 'A' ? `Check this out: ${title}` : `Local service: ${title}`;
+  return `Tag link: ${title}`;
 }
 
 /** A2HS prompt nudge */
@@ -239,7 +239,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
         }
 
         await supabase.from('bookings').update({ status: nextStatus }).eq('id', booking.id);
-        toast.success(nextStatus === 'accepted' ? '? Booking accepted.' : '? Booking declined.');
+        toast.success(nextStatus === 'accepted' ? 'Booking accepted.' : 'Booking declined.');
       } catch {
         toast.error('Something went wrong.');
       } finally {
@@ -436,9 +436,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       const { url } = await res.json();
       if (url) window.location.href = url;
-      else toast.error('? Checkout failed');
+      else toast.error('Checkout failed');
     } catch {
-      toast.error('? Could not start checkout');
+      toast.error('Could not start checkout');
     }
   }
 
@@ -464,7 +464,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     link.download = `${cleanId}-qr.png`;
     link.href = dataUrl;
     link.click();
-    toast.success('⬇️ QR code downloaded!');
+    toast.success('QR code downloaded.');
   };
 
   async function copyToClipboard(text: string): Promise<boolean> {
@@ -528,14 +528,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     if (channel === 'copy') {
       const ok = await copyToClipboard(url);
       if (ok) {
-        toast.success('? Copied!');
+        toast.success('Copied.');
         return;
       }
 
       try {
         if ((navigator as any).share) {
           await (navigator as any).share({ title, url });
-          toast.success('? Shared');
+          toast.success('Shared.');
           return;
         }
       } catch {}
@@ -552,9 +552,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         return;
       }
       await navigator.clipboard.writeText(url);
-      toast.success('? Link copied!');
+      toast.success('Link copied.');
     } catch {
-      toast.error('? Could not share right now');
+      toast.error('Could not share right now');
     }
   };
 
@@ -623,7 +623,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     const json = await res.json();
     if (json?.url) window.location.href = json.url;
-      else toast.error('? Checkout failed');
+      else toast.error('Checkout failed');
   }
 
   async function handleAvailabilityPrimaryAction(blockAny: AvailabilityBlockRow) {
@@ -647,7 +647,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       // 3) Now route based on action type
       if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
-        toast.success('? Slot claimed. Continue below to complete your request.');
+        toast.success('Slot claimed. Continue below to complete your request.');
         document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
         return;
       }
@@ -670,7 +670,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     if (!error) {
       setFeedback((prev) => prev.filter((f) => f.id !== id));
       toast.success('Feedback hidden');
-    } else toast.error('? Failed to hide feedback');
+    } else toast.error('Failed to hide feedback');
   };
 
   const handleSubmitFeedback = async (e: FormEvent) => {
@@ -691,8 +691,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         .eq('hidden', false)
         .order('created_at', { ascending: false });
       setFeedback(data || []);
-      toast.success('? Feedback submitted!');
-    } else toast.error('? Failed to submit feedback');
+      toast.success('Feedback submitted!');
+    } else toast.error('Failed to submit feedback');
   };
 
   const averageRating = feedback.length
@@ -715,8 +715,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       help: 'bg-purple-100 text-purple-800',
     }[cat] || 'bg-gray-100 text-gray-800');
 
-  const getEmoji = (cat: string) => ({ rent: '🏠', sell: '💸', teach: '📚', help: '🤝' }[cat] || '');
-
   const defaultChannels: ShareChannel[] = ['whatsapp', 'sms', 'copy', 'system'];
   const orderedShareChannels: ShareChannel[] = winnerChannel
     ? [winnerChannel, ...defaultChannels.filter((c) => c !== winnerChannel)]
@@ -733,31 +731,35 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
 
+      <div className="mt-2">
+        <div className="text-lg font-semibold">You're seeing live availability.</div>
+        <div className="text-sm opacity-70">When it's gone, it disappears.</div>
+      </div>
+
       {isOwner && (
         <div className="my-2">
           <OwnerBookingToggle tagId={cleanId} tagOwnerId={data.user_id} initialEnabled={!!data.bookings_enabled} />
         </div>
       )}
 
-      {data.featured && <p className="text-sm text-yellow-600 mb-2">? Featured by OmniNet</p>}
-      <p className="text-gray-600 mb-2">{data.description}</p>
-
       <Link href={`/category/${data.category}`}>
         <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getBadge(data.category)}`}>
-          {getEmoji(data.category)} {data.category}
+          {data.category}
         </span>
       </Link>
 
       <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
-      <p className="text-xs text-gray-500 mb-1">📱 {scanCount} scans</p>
-      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">👁 {scanCount} views</p>}
+      <p className="text-xs text-gray-500 mb-1">{scanCount} scans</p>
+      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">{scanCount} views</p>}
 
       <div className="my-4 flex justify-center">
         <button
-          onClick={onPrimaryCTAClick}
-          className="h-12 px-6 rounded-2xl text-white bg-black hover:bg-gray-800 transition text-sm"
+          type="button"
+          className="h-12 px-6 rounded-2xl border text-sm text-gray-700"
+          disabled
+          aria-disabled="true"
         >
-            💚 Support this Tag
+          This tag uses live availability.
         </button>
       </div>
 
@@ -766,11 +768,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           <QRCode value={tagUrlForQR} size={160} level="H" />
         </div>
 
-        <p className="text-sm text-gray-500">📱 Scan this QR to view this tag instantly</p>
+        <p className="text-sm text-gray-500">Scan this QR to view this tag instantly</p>
 
         {winnerChannel && (
           <div className="text-xs text-gray-600 border rounded-2xl px-3 py-2 bg-white shadow-sm">
-            🏆 Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
+            Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
           </div>
         )}
 
@@ -781,12 +783,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
               className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
               title="Owner only"
             >
-              🗓️ Manage Availability
+              Manage availability
             </button>
           )}
 
           <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">
-            ⬇️ Download QR
+            Download QR
           </button>
 
           {orderedShareChannels.map((ch) => {
@@ -797,12 +799,12 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
             const label =
               ch === 'whatsapp'
-                ? '💬 WhatsApp'
+                ? 'WhatsApp'
                 : ch === 'sms'
-                ? '📩 SMS'
+                ? 'SMS'
                 : ch === 'copy'
-                ? '🔗 Copy Link'
-                : '📤 Share';
+                ? 'Copy Link'
+                : 'Share';
 
             return (
               <button
@@ -822,11 +824,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             rel="noopener noreferrer"
             className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
           >
-            🖨️ Print QR
+            Print QR
           </Link>
 
-          <button onClick={onSupportClick} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm">
-            💚 Support this Tag
+          <button type="button" className="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm" disabled aria-disabled="true">
+            This tag uses live availability.
           </button>
         </div>
 
@@ -836,7 +838,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         </div>
       </div>
 
-      {/* ✅ Availability blocks (atomic claim + optional Stripe) */}
+      {/* Availability blocks (atomic claim + optional Stripe) */}
       <AvailabilityPublicSection
         tagId={cleanId}
         onAction={handleAvailabilityPrimaryAction}
@@ -847,19 +849,19 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       <hr className="my-8 border-gray-300" />
       <h2 id="booking-section" className="text-xl font-semibold mb-4">
-        📅 Booking
+        Booking
       </h2>
       <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
       {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
 
       <hr className="my-8 border-gray-300" />
       <h2 className="text-xl font-semibold mb-4">
-        💬 Feedback
+        Feedback
       </h2>
 
       {averageRating && (
         <p className="text-sm text-yellow-600 mb-2">
-          ⭐ Average Rating: {averageRating} ({feedback.length} reviews)
+          Average Rating: {averageRating} ({feedback.length} reviews)
         </p>
       )}
 
@@ -868,11 +870,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           <li key={f.id} className="border p-3 rounded bg-white shadow">
             <div className="flex justify-between items-center mb-1">
               <p className="text-sm text-gray-700">
-                ⭐ {f.rating} by {f.name}
+                Rating: {f.rating} by {f.name}
               </p>
               {isOwner && (
                 <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-600 hover:underline">
-                  🗑 Hide
+                  Hide
                 </button>
               )}
             </div>
@@ -907,7 +909,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           <option value="">Rate this tag</option>
           {[1, 2, 3, 4, 5].map((r) => (
             <option key={r} value={r}>
-              {r} ⭐
+              {r}
             </option>
           ))}
         </select>
@@ -915,6 +917,8 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           Submit Feedback
         </button>
       </form>
+
+      <div className="mt-8 text-xs text-gray-500">This page updates in real time.</div>
     </div>
   );
 }
