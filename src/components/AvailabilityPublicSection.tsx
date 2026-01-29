@@ -62,7 +62,7 @@ export default function AvailabilityPublicSection({
         return;
       }
 
-      setBlocks((data ? []) as AvailabilityBlockRow[]);
+      setBlocks((data ?? []) as AvailabilityBlockRow[]);
       setLoading(false);
     }
 
@@ -82,7 +82,7 @@ export default function AvailabilityPublicSection({
 
   const capacityText = (b: AvailabilityBlockRow) => {
     if (!isLimited(b)) return 'Unlimited';
-    const left = leftCount(b) ? 0;
+    const left = leftCount(b) ?? 0;
     return left <= 3 ? `Only ${left} left` : `${left} left`;
   };
 
@@ -96,7 +96,7 @@ export default function AvailabilityPublicSection({
     try {
       return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(amount);
     } catch {
-      const sym = cur === 'GBP' ? '?' : '';
+      const sym = cur === 'GBP' ? '£' : '';
       return `${sym}${amount.toFixed(2)}`;
     }
   };
@@ -115,8 +115,8 @@ export default function AvailabilityPublicSection({
         ? 'Pay now'
         : 'Open';
 
-    const price = isPaidAction(b.action_type) ? formatMoney(b.price_pence ? null, b.currency || 'GBP') : null;
-    return price ? `${base} ? ${price}` : base;
+    const price = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
+    return price ? `${base} · ${price}` : base;
   };
 
   const fmtFriendly = (iso: string | null) => {
@@ -197,7 +197,7 @@ export default function AvailabilityPublicSection({
   if (loading) {
     return (
       <div className="mt-6 rounded-2xl border p-4">
-        <div className="text-sm opacity-70">Loading availability?</div>
+        <div className="text-sm opacity-70">Loading availability…</div>
       </div>
     );
   }
@@ -206,12 +206,12 @@ export default function AvailabilityPublicSection({
 
   const Card = ({ b }: { b: AvailabilityBlockRow }) => {
     const cap = capacityText(b);
-    const low = isLimited(b) && (leftCount(b) ? 0) <= 3;
+    const low = isLimited(b) && (leftCount(b) ?? 0) <= 3;
 
     const start = fmtFriendly(b.start_at);
     const end = fmtFriendly(b.end_at);
 
-    const money = isPaidAction(b.action_type) ? formatMoney(b.price_pence ? null, b.currency || 'GBP') : null;
+    const money = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
 
     return (
       <div className="rounded-2xl border p-4 bg-white shadow-sm text-left">
@@ -227,7 +227,7 @@ export default function AvailabilityPublicSection({
         {(start || end) && (
           <div className="text-xs opacity-70 mt-2">
             {start || 'TBA'}
-            {end ? ` ? ${end}` : ''}
+            {end ? ` → ${end}` : ''}
           </div>
         )}
 
