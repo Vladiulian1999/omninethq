@@ -34,7 +34,7 @@ export default function AdminClient() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('âŒ Supabase fetch error:', error)
+        console.error('Ã¢ÂÅ’ Supabase fetch error:', error)
         toast.error('Failed to fetch tags')
         return
       }
@@ -98,10 +98,13 @@ export default function AdminClient() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ id: tagId }),
+        body: JSON.stringify({ tagId }),
       })
 
       const payload = await res.json().catch(() => ({} as { error?: string }))
+      if (res.status === 403) {
+        throw new Error('Admin permission denied. Check ADMIN_USER_IDS env var.')
+      }
       if (!res.ok) throw new Error(payload?.error || 'Failed to delete tag')
 
       toast.success('Tag deleted')
@@ -139,7 +142,7 @@ export default function AdminClient() {
         >
           <option value="recent">Sort by Most Recent</option>
           <option value="scanned">Sort by Most Scanned</option>
-          <option value="title">Sort by Title (Aâ€“Z)</option>
+          <option value="title">Sort by Title (AÃ¢â‚¬â€œZ)</option>
         </select>
       </div>
 
@@ -159,8 +162,8 @@ export default function AdminClient() {
               <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
 
               <div className="text-xs text-gray-400 mb-2">
-                ID: {tag.id} â€¢ Scans: {tag.scan_count ?? 0} â€¢{' '}
-                {tag.featured ? 'ðŸŒŸ Featured' : ''} {tag.hidden ? 'ðŸš« Hidden' : ''}
+                ID: {tag.id} Ã¢â‚¬Â¢ Scans: {tag.scan_count ?? 0} Ã¢â‚¬Â¢{' '}
+                {tag.featured ? 'Ã°Å¸Å’Å¸ Featured' : ''} {tag.hidden ? 'Ã°Å¸Å¡Â« Hidden' : ''}
               </div>
 
               <div className="flex gap-3 flex-wrap">
@@ -181,7 +184,7 @@ export default function AdminClient() {
                   disabled={deletingId === tag.id}
                   className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700 disabled:opacity-60"
                 >
-                  {deletingId === tag.id ? 'Deletingâ€¦' : 'Delete'}
+                  {deletingId === tag.id ? 'DeletingÃ¢â‚¬Â¦' : 'Delete'}
                 </button>
               </div>
             </li>

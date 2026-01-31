@@ -69,14 +69,11 @@ export default function MyTagsClient() {
     if (!confirm('Are you sure you want to delete this tag?')) return
     setDeletingId(id)
 
-    const { error, count } = await supabase
-      .from('messages')
-      .delete({ count: 'exact' })
-      .eq('id', id)
+    const { error, data } = await supabase.rpc('delete_tag_cascade', { p_tag_id: id })
 
     if (error) {
       toast.error(error.message || 'Failed to delete tag')
-    } else if (!count) {
+    } else if (!data) {
       toast.error('Delete failed')
     } else {
       setTags((prev) => prev.filter((tag) => tag.id !== id))
@@ -114,9 +111,9 @@ export default function MyTagsClient() {
               <p className="text-xs text-gray-400">ID: {tag.id}</p>
 
               <div className="text-xs text-gray-600 mt-2 flex gap-4">
-                <span>ðŸ‘ï¸ {tag.views ?? 0} views</span>
-                <span>â­ {(tag.average_rating ?? 0).toFixed(1)} rating</span>
-                <span>ðŸ’¬ {tag.review_count ?? 0} reviews</span>
+                <span>Views: {tag.views ?? 0}</span>
+                <span>Rating: {(tag.average_rating ?? 0).toFixed(1)}</span>
+                <span>Reviews: {tag.review_count ?? 0}</span>
               </div>
 
               <div className="mt-3 flex gap-3">
@@ -124,14 +121,14 @@ export default function MyTagsClient() {
                   href={`/edit/${tag.id}`}
                   className="text-sm text-blue-600 hover:underline"
                 >
-                  âœï¸ Edit
+                  Edit
                 </Link>
                 <button
                   onClick={() => handleDelete(tag.id)}
                   disabled={deletingId === tag.id}
                   className="text-sm text-red-600 hover:underline"
                 >
-                  {deletingId === tag.id ? 'Deleting...' : 'ðŸ—‘ Delete'}
+                  {deletingId === tag.id ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
             </li>

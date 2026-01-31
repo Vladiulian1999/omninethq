@@ -14,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
+        <meta charSet="utf-8" />
         {/* Critical for iOS safe area (Dynamic Island / notch) */}
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
