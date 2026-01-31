@@ -42,13 +42,13 @@ export default function MyTagsClient() {
       .eq('hidden', false)
 
     const tagStats: Record<string, { sum: number; count: number }> = {}
-    feedback?.forEach((f) => {
+    ;(feedback as Array<{ tag_id: string; rating: number }> | null)?.forEach((f) => {
       if (!tagStats[f.tag_id]) tagStats[f.tag_id] = { sum: 0, count: 0 }
       tagStats[f.tag_id].sum += f.rating
       tagStats[f.tag_id].count += 1
     })
 
-    const enriched = (rawTags || []).map((tag) => {
+    const enriched = (rawTags || []).map((tag: Tag) => {
       const stats = tagStats[tag.id]
       return {
         ...tag,

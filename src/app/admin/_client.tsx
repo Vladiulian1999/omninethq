@@ -19,12 +19,26 @@ type TagWithUser = {
 export default function AdminClient() {
   const supabase = useMemo(() => getSupabaseBrowser(), [])
 
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authedUser, setAuthedUser] = useState<{ id: string } | null>(null)
   const [tags, setTags] = useState<TagWithUser[]>([])
   const [filter, setFilter] = useState<'all' | 'featured' | 'hidden'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'scanned' | 'title'>('recent')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
+    const checkAuth = async () => {
+      const { data, error } = await supabase.auth.getUser()
+      if (error || !data?.user) setAuthedUser(null)
+      else setAuthedUser({ id: data.user.id })
+      setAuthChecked(true)
+    }
+    checkAuth()
+  }, [supabase])
+
+  useEffect(() => {
+    if (!authChecked || !authedUser) return
+
     const fetchTags = async () => {
       const { data, error } = await supabase
         .from('tags')
@@ -34,15 +48,16 @@ export default function AdminClient() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('ÃƒÂ¢Ã‚ÂÃ…â€™ Supabase fetch error:', error)
+        console.error('Supabase fetch error:', error)
         toast.error('Failed to fetch tags')
         return
       }
+
       setTags((data || []) as TagWithUser[])
     }
 
     fetchTags()
-  }, [supabase])
+  }, [supabase, authChecked, authedUser])
 
   const filteredTags = tags
     .filter((tag) => {
@@ -51,69 +66,82 @@ export default function AdminClient() {
       return true
     })
     .sort((a, b) => {
-      if (sortBy === 'recent') {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      }
-      if (sortBy === 'scanned') {
-        return (b.scan_count || 0) - (a.scan_count || 0)
-      }
-      if (sortBy === 'title') {
-        return a.title.localeCompare(b.title)
-      }
+      if (sortBy === 'recent') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      if (sortBy === 'scanned') return (b.scan_count || 0) - (a.scan_count || 0)
+      if (sortBy === 'title') return a.title.localeCompare(b.title)
       return 0
     })
 
-  const toggleFeatured = async (tagId: string, current: boolean) => {
-    const { error } = await supabase.from('tags').update({ featured: !current }).eq('id', tagId)
-    if (error) {
-      toast.error(error.message || 'Failed to update featured status')
-      return
-    }
-    toast.success(`Tag ${!current ? 'featured' : 'unfeatured'}`)
-    setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, featured: !current } : t)))
+  const toggleFeatured = async (tagRowId: string, current: boolean) => {
+    const { error } = await supabase.from('tags').update({ featured: !current }).eq('id', tagRowId)
+    if (error) return toast.error(error.message || 'Failed to update featured status')
+
+    toast.success(!current ? 'Tag featured' : 'Tag unfeatured')
+    setTags((prev) => prev.map((t) => (t.id === tagRowId ? { ...t, featured: !current } : t)))
   }
 
-  const toggleHidden = async (tagId: string, current: boolean) => {
-    const { error } = await supabase.from('tags').update({ hidden: !current }).eq('id', tagId)
-    if (error) {
-      toast.error(error.message || 'Failed to update visibility')
-      return
-    }
-    toast.success(`Tag ${!current ? 'hidden' : 'unhidden'}`)
-    setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, hidden: !current } : t)))
+  const toggleHidden = async (tagRowId: string, current: boolean) => {
+    const { error } = await supabase.from('tags').update({ hidden: !current }).eq('id', tagRowId)
+    if (error) return toast.error(error.message || 'Failed to update visibility')
+
+    toast.success(!current ? 'Tag hidden' : 'Tag unhidden')
+    setTags((prev) => prev.map((t) => (t.id === tagRowId ? { ...t, hidden: !current } : t)))
   }
 
-  const deleteTag = async (tagId: string) => {
+  const isUuid = (v: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+
+  const deleteTag = async (tagUuid: string) => {
+    if (!isUuid(tagUuid)) {
+      console.error('Non-UUID tag.id detected in admin list:', tagUuid)
+      toast.error('This tag is legacy or corrupted and cannot be deleted from admin.')
+      return
+    }
+
     if (!confirm('Are you sure you want to delete this tag?')) return
-    setDeletingId(tagId)
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError) throw sessionError
-      const token = sessionData?.session?.access_token
-      if (!token) throw new Error('Not authenticated')
 
+    setDeletingId(tagUuid)
+
+    try {
       const res = await fetch('/api/admin/delete-tag', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tagId }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId: tagUuid }),
       })
 
-      const payload = await res.json().catch(() => ({} as { error?: string; step?: string }))
+      const payload = await res.json().catch(() => null as any)
+
       if (!res.ok) {
-        const step = payload?.step ? ` (${payload.step})` : ''
-        throw new Error(payload?.error || `Failed to delete tag${step}`)
+        throw new Error(
+          payload?.step
+            ? `${payload.step}: ${payload?.error || ''}`.trim()
+            : 'Delete failed'
+        )
       }
 
-      toast.success('Tag deleted')
-      setTags((prev) => prev.filter((t) => t.id !== tagId))
+      toast.success('Deleted')
+      setTags((prev) => prev.filter((t) => t.id !== tagUuid))
     } catch (e: any) {
       toast.error(e?.message || 'Failed to delete tag')
     } finally {
       setDeletingId(null)
     }
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="max-w-5xl mx-auto p-6">
+        <p className="text-center text-gray-500">Loading...</p>
+      </div>
+    )
+  }
+
+  if (!authedUser) {
+    return (
+      <div className="max-w-5xl mx-auto p-6">
+        <p className="text-center text-gray-600">Please log in.</p>
+      </div>
+    )
   }
 
   return (
@@ -126,9 +154,7 @@ export default function AdminClient() {
             <button
               key={type}
               onClick={() => setFilter(type)}
-              className={`px-4 py-1 rounded ${
-                filter === type ? 'bg-blue-600 text-white' : 'bg-gray-200'
-              }`}
+              className={`px-4 py-1 rounded ${filter === type ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
             >
               {type.charAt(0).toUpperCase() + type.slice(1)}
             </button>
@@ -137,12 +163,12 @@ export default function AdminClient() {
 
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'recent' | 'scanned' | 'title')}
+          onChange={(e) => setSortBy(e.target.value as any)}
           className="px-3 py-1 rounded border border-gray-300 text-sm"
         >
           <option value="recent">Sort by Most Recent</option>
           <option value="scanned">Sort by Most Scanned</option>
-          <option value="title">Sort by Title (AÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“Z)</option>
+          <option value="title">Sort by Title (A–Z)</option>
         </select>
       </div>
 
@@ -154,16 +180,17 @@ export default function AdminClient() {
             <li key={tag.id} className="border p-4 rounded shadow bg-white">
               <div className="flex justify-between items-center mb-2">
                 <h2 className="text-lg font-semibold">{tag.title}</h2>
-                {tag.users?.[0]?.email && (
-                  <span className="text-xs text-gray-500">Owner: {tag.users[0].email}</span>
-                )}
+                {tag.users?.[0]?.email && <span className="text-xs text-gray-500">Owner: {tag.users[0].email}</span>}
               </div>
 
               <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
 
               <div className="text-xs text-gray-400 mb-2">
-                ID: {tag.id} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Scans: {tag.scan_count ?? 0} ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢{' '}
-                {tag.featured ? 'ÃƒÂ°Ã…Â¸Ã…â€™Ã…Â¸ Featured' : ''} {tag.hidden ? 'ÃƒÂ°Ã…Â¸Ã…Â¡Ã‚Â« Hidden' : ''}
+                <div>Row ID (tags.id): {tag.id}</div>
+                <div>Scans: {tag.scan_count ?? 0}</div>
+                <div>
+                  {tag.featured ? 'Featured' : ''} {tag.hidden ? 'Hidden' : ''}
+                </div>
               </div>
 
               <div className="flex gap-3 flex-wrap">
@@ -173,18 +200,20 @@ export default function AdminClient() {
                 >
                   {tag.featured ? 'Unfeature' : 'Feature'}
                 </button>
+
                 <button
                   onClick={() => toggleHidden(tag.id, tag.hidden)}
                   className="text-sm px-3 py-1 rounded bg-yellow-100 hover:bg-yellow-200"
                 >
                   {tag.hidden ? 'Unhide' : 'Hide'}
                 </button>
+
                 <button
                   onClick={() => deleteTag(tag.id)}
                   disabled={deletingId === tag.id}
                   className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700 disabled:opacity-60"
                 >
-                  {deletingId === tag.id ? 'DeletingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦' : 'Delete'}
+                  {deletingId === tag.id ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
             </li>
