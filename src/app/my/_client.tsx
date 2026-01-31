@@ -69,7 +69,7 @@ export default function MyTagsClient() {
     if (!confirm('Are you sure you want to delete this tag?')) return
     setDeletingId(id)
 
-    const { error, data } = await supabase.rpc('delete_tag_cascade', { p_tag_id: id })
+    const { error, data } = await supabase.rpc('delete_tag_cascade', { tag_id: id })
 
     if (error) {
       toast.error(error.message || 'Failed to delete tag')
@@ -138,3 +138,5 @@ export default function MyTagsClient() {
     </div>
   )
 }
+
+
