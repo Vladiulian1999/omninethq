@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 
 type Tag = {
   id: string
@@ -68,12 +69,18 @@ export default function MyTagsClient() {
     if (!confirm('Are you sure you want to delete this tag?')) return
     setDeletingId(id)
 
-    const { error } = await supabase.from('messages').delete().eq('id', id)
+    const { error, count } = await supabase
+      .from('messages')
+      .delete({ count: 'exact' })
+      .eq('id', id)
 
     if (error) {
-      alert('Failed to delete: ' + error.message)
+      toast.error(error.message || 'Failed to delete tag')
+    } else if (!count) {
+      toast.error('Delete failed')
     } else {
       setTags((prev) => prev.filter((tag) => tag.id !== id))
+      toast.success('Tag deleted')
     }
 
     setDeletingId(null)
@@ -107,9 +114,9 @@ export default function MyTagsClient() {
               <p className="text-xs text-gray-400">ID: {tag.id}</p>
 
               <div className="text-xs text-gray-600 mt-2 flex gap-4">
-                <span>👁️ {tag.views ?? 0} views</span>
-                <span>⭐ {(tag.average_rating ?? 0).toFixed(1)} rating</span>
-                <span>💬 {tag.review_count ?? 0} reviews</span>
+                <span>ðŸ‘ï¸ {tag.views ?? 0} views</span>
+                <span>â­ {(tag.average_rating ?? 0).toFixed(1)} rating</span>
+                <span>ðŸ’¬ {tag.review_count ?? 0} reviews</span>
               </div>
 
               <div className="mt-3 flex gap-3">
@@ -117,14 +124,14 @@ export default function MyTagsClient() {
                   href={`/edit/${tag.id}`}
                   className="text-sm text-blue-600 hover:underline"
                 >
-                  ✏️ Edit
+                  âœï¸ Edit
                 </Link>
                 <button
                   onClick={() => handleDelete(tag.id)}
                   disabled={deletingId === tag.id}
                   className="text-sm text-red-600 hover:underline"
                 >
-                  {deletingId === tag.id ? 'Deleting...' : '🗑 Delete'}
+                  {deletingId === tag.id ? 'Deleting...' : 'ðŸ—‘ Delete'}
                 </button>
               </div>
             </li>

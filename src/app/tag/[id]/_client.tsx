@@ -722,203 +722,240 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const tagUrlForQR = buildShareUrl(baseTagUrl, 'copy', shareVariant);
 
+  const shareButtonBase = 'h-10 px-4 rounded-xl border border-amber-200 bg-white shadow-sm text-sm text-amber-900 hover:bg-amber-50 transition';
+  const shareButtonWinner = 'border-amber-900 bg-amber-900 text-white hover:bg-amber-800';
+
   return (
-    <div className="p-10 text-center">
+    <div className="min-h-screen bg-amber-50/60">
       <Toaster position="top-center" />
       <A2HSNudge />
       {EmailAction}
-      <BackButton />
 
-      <h1 className="text-3xl font-bold mb-2">{data.title}</h1>
-
-      <div className="mt-2">
-        <div className="text-lg font-semibold">You're seeing live availability.</div>
-        <div className="text-sm opacity-70">When it's gone, it disappears.</div>
-      </div>
-
-      {isOwner && (
-        <div className="my-2">
-          <OwnerBookingToggle tagId={cleanId} tagOwnerId={data.user_id} initialEnabled={!!data.bookings_enabled} />
-        </div>
-      )}
-
-      <Link href={`/category/${data.category}`}>
-        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getBadge(data.category)}`}>
-          {data.category}
-        </span>
-      </Link>
-
-      <p className="text-sm text-gray-400 mt-4 mb-1">Tag ID: {cleanId}</p>
-      <p className="text-xs text-gray-500 mb-1">{scanCount} scans</p>
-      {typeof data.views === 'number' && <p className="text-xs text-gray-500 mb-4">{scanCount} views</p>}
-
-      <div className="my-4 flex justify-center">
-        <button
-          type="button"
-          className="h-12 px-6 rounded-2xl border text-sm text-gray-700"
-          disabled
-          aria-disabled="true"
-        >
-          This tag uses live availability.
-        </button>
-      </div>
-
-      <div className="flex flex-col items-center gap-3 mb-8">
-        <div ref={qrRef} className="bg-white p-3 rounded shadow">
-          <QRCode value={tagUrlForQR} size={160} level="H" />
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <BackButton />
         </div>
 
-        <p className="text-sm text-gray-500">Scan this QR to view this tag instantly</p>
-
-        {winnerChannel && (
-          <div className="text-xs text-gray-600 border rounded-2xl px-3 py-2 bg-white shadow-sm">
-            Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
-          </div>
-        )}
-
-        <div className="flex flex-wrap justify-center gap-3 mt-2">
-          {isOwner && (
-            <button
-              onClick={() => router.push(`/tag/${encodeURIComponent(cleanId)}/availability`)}
-              className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm"
-              title="Owner only"
-            >
-              Manage availability
-            </button>
-          )}
-
-          <button onClick={handleDownload} className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition text-sm">
-            Download QR
-          </button>
-
-          {orderedShareChannels.map((ch) => {
-            const isWinner = winnerChannel === ch;
-
-            const base = 'rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50';
-            const winnerStyle = 'border-black bg-black text-white hover:bg-gray-800';
-
-            const label =
-              ch === 'whatsapp'
-                ? 'WhatsApp'
-                : ch === 'sms'
-                ? 'SMS'
-                : ch === 'copy'
-                ? 'Copy Link'
-                : 'Share';
-
-            return (
-              <button
-                key={ch}
-                onClick={() => sendShare(ch)}
-                className={`${base} ${isWinner ? winnerStyle : ''}`}
-                title={isWinner ? 'Most successful channel' : `Copy variant ${shareVariant}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-
-          <Link
-            href={`/tag/${encodeURIComponent(cleanId)}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-xl border px-4 py-2 transition text-sm hover:bg-gray-50"
-          >
-            Print QR
-          </Link>
-
-          <button type="button" className="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm" disabled aria-disabled="true">
-            This tag uses live availability.
-          </button>
-        </div>
-
-        <div className="text-[11px] text-gray-400 mt-1">
-          Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
-          <span className="font-mono">{shareVariant}</span>
-        </div>
-      </div>
-
-      {/* Availability blocks (atomic claim + optional Stripe) */}
-      <AvailabilityPublicSection
-        tagId={cleanId}
-        onAction={handleAvailabilityPrimaryAction}
-        refreshKey={availabilityRefreshKey}
-      />
-
-      <ScanAnalytics data={scanChartData} />
-
-      <hr className="my-8 border-gray-300" />
-      <h2 id="booking-section" className="text-xl font-semibold mb-4">
-        Booking
-      </h2>
-      <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
-      {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
-
-      <hr className="my-8 border-gray-300" />
-      <h2 className="text-xl font-semibold mb-4">
-        Feedback
-      </h2>
-
-      {averageRating && (
-        <p className="text-sm text-yellow-600 mb-2">
-          Average Rating: {averageRating} ({feedback.length} reviews)
-        </p>
-      )}
-
-      <ul className="space-y-4 mb-6 max-w-lg mx-auto text-left">
-        {feedback.map((f) => (
-          <li key={f.id} className="border p-3 rounded bg-white shadow">
-            <div className="flex justify-between items-center mb-1">
-              <p className="text-sm text-gray-700">
-                Rating: {f.rating} by {f.name}
-              </p>
+        <div className="rounded-3xl border border-amber-100 bg-white/90 p-6 shadow-sm md:p-8">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={`/category/${data.category}`}>
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getBadge(data.category)}`}>
+                  {data.category}
+                </span>
+              </Link>
               {isOwner && (
-                <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-600 hover:underline">
-                  Hide
-                </button>
+                <OwnerBookingToggle tagId={cleanId} tagOwnerId={data.user_id} initialEnabled={!!data.bookings_enabled} />
               )}
             </div>
-            <p className="text-sm text-gray-800">{f.message}</p>
-          </li>
-        ))}
-      </ul>
 
-      <form onSubmit={handleSubmitFeedback} className="space-y-3 text-left max-w-md mx-auto">
-        <input
-          className="w-full border p-2 rounded"
-          placeholder="Your name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <textarea
-          className="w-full border p-2 rounded"
-          placeholder="Your comment..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          required
-        />
-        <select
-          className="w-full border p-2 rounded"
-          value={rating}
-          onChange={(e) => {
-            const v = e.target.value;
-            setRating(v === '' ? '' : parseInt(v, 10));
-          }}
-          required
-        >
-          <option value="">Rate this tag</option>
-          {[1, 2, 3, 4, 5].map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <button type="submit" className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800">
-          Submit Feedback
-        </button>
-      </form>
+            <h1 className="text-3xl font-semibold leading-tight text-amber-950 md:text-4xl">
+              {data.title}
+            </h1>
 
-      <div className="mt-8 text-xs text-gray-500">This page updates in real time.</div>
+            {data.description ? (
+              <p className="text-base leading-relaxed text-amber-900/70">
+                {data.description}
+              </p>
+            ) : null}
+
+            <div className="space-y-1">
+              <div className="text-lg font-semibold text-amber-950">
+                You're seeing live availability.
+              </div>
+              <div className="text-sm text-amber-900/70">
+                When it's gone, it disappears.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4 text-sm text-amber-900/70">
+              <span>Tag ID: {cleanId}</span>
+              <span>{scanCount} scans</span>
+              {typeof data.views === 'number' && <span>{scanCount} views</span>}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="h-11 px-5 rounded-2xl border border-amber-200 bg-amber-50 text-sm text-amber-900"
+                disabled
+                aria-disabled="true"
+              >
+                This tag uses live availability.
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <section className="mt-10">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-amber-950">Availability</h2>
+          </div>
+          <AvailabilityPublicSection
+            tagId={cleanId}
+            onAction={handleAvailabilityPrimaryAction}
+            refreshKey={availabilityRefreshKey}
+          />
+        </section>
+
+        <section className="mt-10 grid gap-6 md:grid-cols-[320px_1fr]">
+          <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+            <div className="text-sm font-medium text-amber-950">QR code</div>
+            <div ref={qrRef} className="mt-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-100">
+              <QRCode value={tagUrlForQR} size={180} level="H" />
+            </div>
+            <p className="mt-3 text-xs text-amber-900/60">
+              Scan this QR to view this tag instantly
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                onClick={handleDownload}
+                className="h-10 px-4 rounded-xl bg-amber-900 text-white shadow-sm hover:bg-amber-800 transition text-sm"
+              >
+                Download QR
+              </button>
+              <Link
+                href={`/tag/${encodeURIComponent(cleanId)}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-10 px-4 rounded-xl border border-amber-200 bg-white text-sm text-amber-900 shadow-sm hover:bg-amber-50 transition"
+              >
+                Print QR
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-amber-950">Share</div>
+                <div className="text-xs text-amber-900/60">Choose a channel</div>
+              </div>
+              {winnerChannel && (
+                <div className="text-xs text-amber-900/70 border border-amber-100 rounded-2xl px-3 py-2 bg-amber-50">
+                  Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              {isOwner && (
+                <button
+                  onClick={() => router.push(`/tag/${encodeURIComponent(cleanId)}/availability`)}
+                  className="h-10 px-4 rounded-xl bg-amber-900 text-white shadow-sm hover:bg-amber-800 transition text-sm"
+                  title="Owner only"
+                >
+                  Manage availability
+                </button>
+              )}
+
+              {orderedShareChannels.map((ch) => {
+                const isWinner = winnerChannel === ch;
+
+                const label =
+                  ch === 'whatsapp'
+                    ? 'WhatsApp'
+                    : ch === 'sms'
+                    ? 'SMS'
+                    : ch === 'copy'
+                    ? 'Copy Link'
+                    : 'Share';
+
+                return (
+                  <button
+                    key={ch}
+                    onClick={() => sendShare(ch)}
+                    className={`${shareButtonBase} ${isWinner ? shareButtonWinner : ''}`}
+                    title={isWinner ? 'Most successful channel' : `Copy variant ${shareVariant}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 text-[11px] text-amber-900/60">
+              Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
+              <span className="font-mono">{shareVariant}</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <ScanAnalytics data={scanChartData} />
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-amber-100 bg-white p-6 shadow-sm" id="booking-section">
+          <h2 className="text-xl font-semibold text-amber-950 mb-4">Booking</h2>
+          <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
+          {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-amber-100 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-amber-950 mb-4">Feedback</h2>
+
+          {averageRating && (
+            <p className="text-sm text-amber-900/70 mb-3">
+              Average Rating: {averageRating} ({feedback.length} reviews)
+            </p>
+          )}
+
+          <ul className="space-y-4 mb-6">
+            {feedback.map((f) => (
+              <li key={f.id} className="border border-amber-100 p-3 rounded-xl bg-white shadow-sm">
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-sm text-amber-900">
+                    Rating: {f.rating} by {f.name}
+                  </p>
+                  {isOwner && (
+                    <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-600 hover:underline">
+                      Hide
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-amber-900/80">{f.message}</p>
+              </li>
+            ))}
+          </ul>
+
+          <form onSubmit={handleSubmitFeedback} className="space-y-3">
+            <input
+              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              placeholder="Your name (optional)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <textarea
+              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              placeholder="Your comment..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              required
+            />
+            <select
+              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              value={rating}
+              onChange={(e) => {
+                const v = e.target.value;
+                setRating(v === '' ? '' : parseInt(v, 10));
+              }}
+              required
+            >
+              <option value="">Rate this tag</option>
+              {[1, 2, 3, 4, 5].map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="h-10 px-4 rounded-xl bg-amber-900 text-white hover:bg-amber-800">
+              Submit Feedback
+            </button>
+          </form>
+        </section>
+
+        <div className="mt-8 text-xs text-amber-900/60">This page updates in real time.</div>
+      </div>
     </div>
   );
 }

@@ -34,7 +34,7 @@ export default function AdminClient() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('❌ Supabase fetch error:', error)
+        console.error('âŒ Supabase fetch error:', error)
         toast.error('Failed to fetch tags')
         return
       }
@@ -66,7 +66,7 @@ export default function AdminClient() {
   const toggleFeatured = async (tagId: string, current: boolean) => {
     const { error } = await supabase.from('tags').update({ featured: !current }).eq('id', tagId)
     if (error) {
-      toast.error('Failed to update featured status')
+      toast.error(error.message || 'Failed to update featured status')
       return
     }
     toast.success(`Tag ${!current ? 'featured' : 'unfeatured'}`)
@@ -76,7 +76,7 @@ export default function AdminClient() {
   const toggleHidden = async (tagId: string, current: boolean) => {
     const { error } = await supabase.from('tags').update({ hidden: !current }).eq('id', tagId)
     if (error) {
-      toast.error('Failed to update visibility')
+      toast.error(error.message || 'Failed to update visibility')
       return
     }
     toast.success(`Tag ${!current ? 'hidden' : 'unhidden'}`)
@@ -86,14 +86,31 @@ export default function AdminClient() {
   const deleteTag = async (tagId: string) => {
     if (!confirm('Are you sure you want to delete this tag?')) return
     setDeletingId(tagId)
-    const { error } = await supabase.from('tags').delete().eq('id', tagId)
-    if (error) {
-      toast.error('Failed to delete tag')
-    } else {
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError) throw sessionError
+      const token = sessionData?.session?.access_token
+      if (!token) throw new Error('Not authenticated')
+
+      const res = await fetch('/api/admin/delete-tag', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: tagId }),
+      })
+
+      const payload = await res.json().catch(() => ({} as { error?: string }))
+      if (!res.ok) throw new Error(payload?.error || 'Failed to delete tag')
+
       toast.success('Tag deleted')
       setTags((prev) => prev.filter((t) => t.id !== tagId))
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to delete tag')
+    } finally {
+      setDeletingId(null)
     }
-    setDeletingId(null)
   }
 
   return (
@@ -122,7 +139,7 @@ export default function AdminClient() {
         >
           <option value="recent">Sort by Most Recent</option>
           <option value="scanned">Sort by Most Scanned</option>
-          <option value="title">Sort by Title (A–Z)</option>
+          <option value="title">Sort by Title (Aâ€“Z)</option>
         </select>
       </div>
 
@@ -142,8 +159,8 @@ export default function AdminClient() {
               <p className="text-gray-600 text-sm mb-1">{tag.description}</p>
 
               <div className="text-xs text-gray-400 mb-2">
-                ID: {tag.id} • Scans: {tag.scan_count ?? 0} •{' '}
-                {tag.featured ? '🌟 Featured' : ''} {tag.hidden ? '🚫 Hidden' : ''}
+                ID: {tag.id} â€¢ Scans: {tag.scan_count ?? 0} â€¢{' '}
+                {tag.featured ? 'ðŸŒŸ Featured' : ''} {tag.hidden ? 'ðŸš« Hidden' : ''}
               </div>
 
               <div className="flex gap-3 flex-wrap">
@@ -164,7 +181,7 @@ export default function AdminClient() {
                   disabled={deletingId === tag.id}
                   className="text-sm px-3 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700 disabled:opacity-60"
                 >
-                  {deletingId === tag.id ? 'Deleting…' : 'Delete'}
+                  {deletingId === tag.id ? 'Deletingâ€¦' : 'Delete'}
                 </button>
               </div>
             </li>
