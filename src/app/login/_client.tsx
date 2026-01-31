@@ -1,79 +1,92 @@
-'use client';
+'use client'
 
 // Email + Password login (Sign in / Sign up / Reset), browser-only.
-import { useMemo, useState } from 'react';
-import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { getSupabaseBrowser } from '@/lib/supabase-browser'
 
-type Mode = 'signin' | 'signup' | 'reset';
+type Mode = 'signin' | 'signup' | 'reset'
 
-export default function LoginClient({ next }: { next: string }) {
-  const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const [mode, setMode] = useState<Mode>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+export default function LoginClient({ nextUrl }: { nextUrl: string }) {
+  const router = useRouter()
+  const supabase = useMemo(() => getSupabaseBrowser(), [])
+
+  const [mode, setMode] = useState<Mode>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
 
   const goNext = () => {
-    if (typeof window !== 'undefined') window.location.href = next || '/explore';
-  };
+    router.replace(nextUrl || '/explore')
+    router.refresh()
+  }
 
   const onSignin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(null); setMsg(null); setLoading(true);
+    e.preventDefault()
+    setErr(null)
+    setMsg(null)
+    setLoading(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
-      });
-      if (error) return setErr(error.message);
-      goNext();
+      })
+      if (error) return setErr(error.message)
+
+      // IMPORTANT: client-side navigation avoids hard reload auth races
+      goNext()
     } catch (e: any) {
-      setErr(e?.message || 'Sign in failed.');
+      setErr(e?.message || 'Sign in failed.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const onSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(null); setMsg(null); setLoading(true);
+    e.preventDefault()
+    setErr(null)
+    setMsg(null)
+    setLoading(true)
     try {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-      });
-      if (error) return setErr(error.message);
-      setMsg('Account created. Check your email to confirm (if required), then sign in.');
-      setMode('signin');
+      })
+      if (error) return setErr(error.message)
+      setMsg('Account created. Check your email to confirm (if required), then sign in.')
+      setMode('signin')
     } catch (e: any) {
-      setErr(e?.message || 'Sign up failed.');
+      setErr(e?.message || 'Sign up failed.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const onReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(null); setMsg(null); setLoading(true);
+    e.preventDefault()
+    setErr(null)
+    setMsg(null)
+    setLoading(true)
     try {
       const redirectTo =
         typeof window !== 'undefined'
-          ? `${window.location.origin}/login?next=${encodeURIComponent(next)}`
-          : undefined;
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-      if (error) return setErr(error.message);
-      setMsg('Password reset email sent. Check your inbox.');
-      setMode('signin');
-    } catch (e: any) {
-      setErr(e?.message || 'Reset failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
+          ? `${window.location.origin}/login?next=${encodeURIComponent(nextUrl || '/explore')}`
+          : undefined
 
-  const submit = mode === 'signin' ? onSignin : mode === 'signup' ? onSignup : onReset;
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+      if (error) return setErr(error.message)
+      setMsg('Password reset email sent. Check your inbox.')
+      setMode('signin')
+    } catch (e: any) {
+      setErr(e?.message || 'Reset failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submit = mode === 'signin' ? onSignin : mode === 'signup' ? onSignup : onReset
 
   return (
     <div className="p-8 max-w-md mx-auto">
@@ -84,8 +97,8 @@ export default function LoginClient({ next }: { next: string }) {
         {mode === 'signin'
           ? 'Use your email and password to sign in.'
           : mode === 'signup'
-          ? 'Create an account with email and password.'
-          : 'Enter your email and we’ll send a reset link.'}
+            ? 'Create an account with email and password.'
+            : 'Enter your email and we’ll send a reset link.'}
       </p>
 
       {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
@@ -111,6 +124,7 @@ export default function LoginClient({ next }: { next: string }) {
             onChange={(e) => setPassword(e.target.value)}
           />
         )}
+
         <button
           type="submit"
           disabled={loading}
@@ -119,29 +133,38 @@ export default function LoginClient({ next }: { next: string }) {
           {loading
             ? 'Please wait…'
             : mode === 'signin'
-            ? 'Sign in'
-            : mode === 'signup'
-            ? 'Create account'
-            : 'Send reset link'}
+              ? 'Sign in'
+              : mode === 'signup'
+                ? 'Create account'
+                : 'Send reset link'}
         </button>
       </form>
 
       <div className="mt-4 text-sm flex items-center justify-between">
         {mode !== 'signin' ? (
-          <button className="underline" onClick={() => setMode('signin')}>Have an account? Sign in</button>
+          <button type="button" className="underline" onClick={() => setMode('signin')}>
+            Have an account? Sign in
+          </button>
         ) : (
-          <button className="underline" onClick={() => setMode('signup')}>Create account</button>
+          <button type="button" className="underline" onClick={() => setMode('signup')}>
+            Create account
+          </button>
         )}
+
         {mode !== 'reset' ? (
-          <button className="underline" onClick={() => setMode('reset')}>Forgot password?</button>
+          <button type="button" className="underline" onClick={() => setMode('reset')}>
+            Forgot password?
+          </button>
         ) : (
-          <button className="underline" onClick={() => setMode('signin')}>Back to sign in</button>
+          <button type="button" className="underline" onClick={() => setMode('signin')}>
+            Back to sign in
+          </button>
         )}
       </div>
 
       <p className="mt-6 text-xs text-gray-500">
-        After signing in you’ll be redirected to <span className="font-mono">{next}</span>.
+        After signing in you’ll be redirected to <span className="font-mono">{nextUrl}</span>.
       </p>
     </div>
-  );
+  )
 }

@@ -1,36 +1,42 @@
 'use client'
+
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { getSupabaseBrowser } from '@/lib/supabase-browser'
 
 export default function HeaderControls() {
   const router = useRouter()
+  const supabase = useMemo(() => getSupabaseBrowser(), [])
+
   const [userId, setUserId] = useState<string | null>(null)
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUserId(user?.id ?? null)
+    let mounted = true
+
+    const init = async () => {
+      const { data, error } = await supabase.auth.getUser()
+      if (!mounted) return
+      if (error || !data?.user) setUserId(null)
+      else setUserId(data.user.id)
     }
 
-    getUser()
+    init()
 
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setUserId(session.user.id)
-      } else {
-        setUserId(null)
-      }
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return
+      setUserId(session?.user?.id ?? null)
     })
 
     return () => {
-      listener.subscription.unsubscribe()
+      mounted = false
+      sub.subscription.unsubscribe()
     }
-  }, [])
+  }, [supabase])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/')
+    router.replace('/')
+    router.refresh()
   }
 
   return userId ? (
@@ -41,12 +47,14 @@ export default function HeaderControls() {
       >
         View Profile
       </button>
+
       <button
         onClick={() => router.push(`/profile/edit`)}
         className="text-sm px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
       >
         Edit Profile
       </button>
+
       <button
         onClick={handleLogout}
         className="text-sm px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"

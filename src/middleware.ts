@@ -21,10 +21,27 @@ export async function middleware(req: NextRequest) {
     },
   })
 
-  await supabase.auth.getUser()
+  // Refresh session if needed + get user
+  const { data } = await supabase.auth.getUser()
+
+  // Only protect what must be authed
+  const pathname = req.nextUrl.pathname
+  const isProtected =
+    pathname.startsWith('/new') ||
+    pathname.startsWith('/my') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/u')
+
+  if (isProtected && !data.user) {
+    const redirectUrl = req.nextUrl.clone()
+    redirectUrl.pathname = '/login'
+    redirectUrl.searchParams.set('next', pathname)
+    return NextResponse.redirect(redirectUrl)
+  }
+
   return res
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/new/:path*', '/my/:path*', '/admin/:path*', '/u/:path*'],
 }

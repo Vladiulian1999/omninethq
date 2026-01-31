@@ -1,23 +1,15 @@
-'use client'
-
 import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-let _client: ReturnType<typeof createBrowserClient> | null = null
+let browserClient: SupabaseClient | null = null
 
-/**
- * Canonical browser Supabase client (SSR helpers).
- * Keeps session cookies in sync with Next middleware.
- */
-export function getSupabaseBrowser(): ReturnType<typeof createBrowserClient> {
-  if (_client) return _client
+export function getSupabaseBrowser() {
+  if (browserClient) return browserClient
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  if (!url || !anon) {
-    throw new Error('Supabase browser client missing public envs at runtime.')
-  }
-
-  _client = createBrowserClient(url, anon)
-  return _client
+  browserClient = createBrowserClient(url, anon)
+  return browserClient
 }
+
