@@ -1,86 +1,80 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { createClient } from '@supabase/supabase-js';
+function getServiceSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL missing');
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE(_KEY) missing');
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
-type EventName =
-  | 'view_tag'
-  | 'cta_impression'
-  | 'cta_click'
-  | 'checkout_start'
-  | 'booking_start'
-  | 'booking_submitted'
-  | 'booking_accepted';
+function cleanId(v: any) {
+  return (v ?? '').toString().trim().replace(/[<>\s]/g, '');
+}
+function cleanStr(v: any) {
+  const s = (v ?? '').toString().trim();
+  return s.length ? s : null;
+}
 
-export async function POST(req: Request) {
+async function resolveLiveBlock(supabase: ReturnType<typeof getServiceSupabase>, tagId: string) {
+  const nowIso = new Date().toISOString();
+  const { data } = await supabase
+    .from('availability_blocks')
+    .select('id, owner_id')
+    .eq('tag_id', tagId)
+    .eq('status', 'live')
+    .lte('start_at', nowIso)
+    .gt('end_at', nowIso)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    block_id: (data as any)?.id ?? null,
+    owner_id: (data as any)?.owner_id ?? null,
+  };
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const { evt, payload } = (await req.json().catch(() => ({}))) as {
-      evt?: EventName;
-      payload?: Record<string, any>;
+    const body = await req.json().catch(() => null);
+    const evt = cleanStr(body?.evt);
+    const payload = body?.payload || {};
+
+    const tagId = cleanId(payload?.tag_id);
+    if (!evt || !tagId) {
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
+    const supabase = getServiceSupabase();
+    const live = await resolveLiveBlock(supabase, tagId);
+
+    const refHdr = req.headers.get('referer') || req.headers.get('referrer') || null;
+
+    const insertRow = {
+      event: evt,
+      tag_id: tagId,
+      block_id: live.block_id,
+      owner_id: payload?.owner_id ?? live.owner_id,
+      user_id: payload?.user_id ?? null,
+      anon_id: cleanStr(payload?.anon_id),
+      experiment_id: cleanStr(payload?.experiment_id),
+      variant: cleanStr(payload?.variant),
+      channel: cleanStr(payload?.channel),
+      referrer: cleanStr(payload?.referrer) ?? refHdr,
+      meta: payload?.meta ?? {},
     };
 
-    if (!evt) return new Response('Bad Request', { status: 400 });
+    const { error } = await supabase.from('analytics_events').insert(insertRow);
+    if (error) console.warn('[track] insert error:', error.message);
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    if (!url || !key) {
-      console.error('TRACK: missing Supabase envs');
-      return new Response('Server not configured', { status: 500 });
-    }
-
-    const supabase = createClient(url, key, { auth: { persistSession: false } });
-
-    // Normalize fields
-    const p = payload ?? {};
-    const anon_id = p.anon_id ?? null;
-    const tag_id = p.tag_id ?? null;
-    const owner_id = p.owner_id ?? null;
-    const user_id = p.user_id ?? null;
-    const experiment_id = p.experiment_id ?? null;
-    const variant = p.variant ?? null;
-    const referrer = p.referrer ?? null;
-    const channel = p.channel ?? null;
-    const meta = p.meta ?? {};
-
-    // Prefer RPC if you created it; fall back to direct insert
-    const tryRpc = await supabase.rpc('log_event', {
-      p_event: evt,
-      p_tag_id: tag_id,
-      p_owner_id: owner_id,
-      p_user_id: user_id,
-      p_anon_id: anon_id,
-      p_experiment_id: experiment_id,
-      p_variant: variant,
-      p_referrer: referrer,
-      p_channel: channel,
-      p_meta: meta,
-    });
-
-    if (tryRpc.error) {
-      // RPC missing? Do a direct insert.
-      const ins = await supabase.from('analytics_events').insert([
-        {
-          event: evt,
-          tag_id,
-          owner_id,
-          user_id,
-          anon_id,
-          experiment_id,
-          variant,
-          referrer,
-          channel,
-          meta,
-        },
-      ]);
-      if (ins.error) {
-        console.error('TRACK insert error', ins.error);
-        return new Response('Failed to log', { status: 500 });
-      }
-    }
-
-    return new Response(null, { status: 204 });
-  } catch (e) {
-    console.error('TRACK fatal', e);
-    return new Response('Server error', { status: 500 });
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (e: any) {
+    console.warn('[track] failed:', e?.message || e);
+    return NextResponse.json({ ok: true }, { status: 200 });
   }
 }

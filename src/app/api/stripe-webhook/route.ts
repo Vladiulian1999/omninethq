@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
       const cv = cleanStr(s.metadata?.cv).toUpperCase();
 
       // Availability metadata
-      const blockId = cleanId(s.metadata?.blockId ?? s.metadata?.block_id);
+      const blockIdRaw = cleanStr(s.metadata?.blockId ?? s.metadata?.block_id);
+      const blockId = blockIdRaw || null;
       const availabilityActionId = cleanId(
         s.metadata?.availabilityActionId ?? s.metadata?.availability_action_id ?? s.metadata?.actionId
       );
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest) {
                 confirmed_at: new Date().toISOString(),
                 confirm_result: confirmData ?? null,
               },
+              block_id: blockId || null,
+              tag_id: tagId,
             })
             .eq('id', availabilityActionId);
 
@@ -109,11 +112,14 @@ export async function POST(req: NextRequest) {
       // ---- 1) Donations record (idempotent via unique stripe_session_id) ----
       const donationPayload = {
         tag_id: tagId, // TEXT
+        block_id: blockId || null,
         amount_cents: amount, // INT
         currency, // TEXT
         stripe_session_id: stripeSessionId, // TEXT UNIQUE
         referral_code: refCode, // TEXT nullable
         referrer_user_id: null as string | null, // filled if code matches
+        share_channel: ch || null,
+        copy_variant: cv || null,
       };
 
       if (refCode) {
@@ -138,6 +144,7 @@ export async function POST(req: NextRequest) {
       const analyticsPayload = {
         event: 'checkout_success',
         tag_id: tagId,
+        block_id: blockId || null,
         channel, // attribution
         experiment_id: null,
         variant: null,
@@ -153,7 +160,6 @@ export async function POST(req: NextRequest) {
           cv: cv || null,
           // availability linkage (if any)
           availability_action_id: availabilityActionId || null,
-          block_id: blockId || null,
         } as Record<string, any>,
       };
 

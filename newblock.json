@@ -1,0 +1,14 @@
+﻿{
+  "message_id": "tag-ovypw",
+  "title": "Checkout test block (fresh)",
+  "start_at": "2026-02-17T17:14:16.419Z",
+  "end_at": "2026-02-17T19:14:16.639Z",
+  "timezone": "Europe/London",
+  "capacity_total": 10,
+  "status": "live",
+  "action_type": "book",
+  "visibility": "public",
+  "price_pence": 100,
+  "currency": "GBP"
+}
+
