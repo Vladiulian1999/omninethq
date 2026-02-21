@@ -55,19 +55,24 @@ export async function POST(req: NextRequest) {
 
     const refHdr = req.headers.get('referer') || req.headers.get('referrer') || null;
 
-    const insertRow = {
-      event: evt,
-      tag_id: tagId,
-      block_id: live.block_id,
-      owner_id: payload?.owner_id ?? live.owner_id,
-      user_id: payload?.user_id ?? null,
-      anon_id: cleanStr(payload?.anon_id),
-      experiment_id: cleanStr(payload?.experiment_id),
-      variant: cleanStr(payload?.variant),
-      channel: cleanStr(payload?.channel),
-      referrer: cleanStr(payload?.referrer) ?? refHdr,
-      meta: payload?.meta ?? {},
-    };
+    const explicitBlockId =
+  (payload?.meta && typeof payload.meta === 'object' && payload.meta?.block_id) ? cleanId(payload.meta.block_id) : null;
+
+
+const insertRow = {
+  event: evt,
+  tag_id: tagId,
+  block_id: explicitBlockId || live.block_id,
+  owner_id: payload?.owner_id ?? live.owner_id,
+  user_id: payload?.user_id ?? null,
+  anon_id: cleanStr(payload?.anon_id),
+  experiment_id: cleanStr(payload?.experiment_id),
+  variant: cleanStr(payload?.variant),
+  channel: cleanStr(payload?.channel),
+  referrer: cleanStr(payload?.referrer) ?? refHdr,
+  meta: payload?.meta ?? {},
+};
+
 
     const { error } = await supabase.from('analytics_events').insert(insertRow);
     if (error) console.warn('[track] insert error:', error.message);
@@ -78,3 +83,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 }
+

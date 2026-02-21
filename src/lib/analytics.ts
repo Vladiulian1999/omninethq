@@ -18,7 +18,7 @@ export type EventName =
   | 'availability_action_pending'
   | 'availability_action_confirmed'
   | 'availability_action_failed'
-
+    'explore_impression';
 function getAnonIdSafe(): string | null {
   try {
     const k = 'omni_anon_id';
