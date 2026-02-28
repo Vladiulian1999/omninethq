@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import ShareButton from '@/components/ShareButton'
@@ -33,8 +33,16 @@ type FeedbackRow = {
   hidden?: boolean | null
 }
 
+type Card = {
+  tag: Tag
+  block_id: string
+  bucket: 'exploit' | 'explore'
+  final_rank_score: number | null
+  position: number
+}
+
 const CATEGORIES = ['all', 'rent', 'sell', 'teach', 'help'] as const
-type SortKey = 'reinforced' | 'new' | 'featured' | 'popular' // keep popular as fallback
+type SortKey = 'reinforced' | 'new' | 'featured' | 'popular'
 
 function CategoryPill({ category }: { category: string | null }) {
   const base = 'px-2 py-1 rounded-full text-xs'
@@ -56,19 +64,58 @@ function isArray<T>(x: unknown): x is T[] {
   return Array.isArray(x)
 }
 
+function toNum(x: string | number | null | undefined): number | null {
+  if (x === null || x === undefined) return null
+  const n = typeof x === 'string' ? Number(x) : x
+  return Number.isFinite(n) ? n : null
+}
+
+function oncePerSession(key: string): boolean {
+  try {
+    if (typeof window === 'undefined') return true
+    if (sessionStorage.getItem(key)) return false
+    sessionStorage.setItem(key, '1')
+    return true
+  } catch {
+    return true // if storage fails, don't block logging
+  }
+}
+
 export default function ExploreClient() {
   const [loading, setLoading] = useState(true)
 
-  // Reinforcement order (block-based)
-  const [mix, setMix] = useState<MixRow[]>([])
-
-  // Tag rows for rendering
-  const [rows, setRows] = useState<Tag[]>([])
+  // Store cards (ranked units), not just tags
+  const [cards, setCards] = useState<Card[]>([])
 
   // UI filters
   const [q, setQ] = useState('')
   const [cat, setCat] = useState<(typeof CATEGORIES)[number]>('all')
   const [sort, setSort] = useState<SortKey>('reinforced')
+
+  const logExplore = useCallback(
+    async (
+      event: string,
+      c: Card,
+      extraMeta?: Record<string, unknown>
+    ) => {
+      if (!c?.block_id || !c?.tag?.id) return
+      const key = `explore_${event}_${c.block_id}`
+      if (!oncePerSession(key)) return
+
+      await logEvent(event as any, {
+        tag_id: c.tag.id,
+        meta: {
+          block_id: c.block_id,
+          bucket: c.bucket,
+          position: c.position,
+          final_rank_score: c.final_rank_score,
+          source: 'explore',
+          ...(extraMeta || {}),
+        },
+      }).catch(() => {})
+    },
+    []
+  )
 
   useEffect(() => {
     ;(async () => {
@@ -81,44 +128,15 @@ export default function ExploreClient() {
 
       if (mixErr) {
         console.error('Error fetching ranked mix:', mixErr)
-        setMix([])
-        setRows([])
+        setCards([])
         setLoading(false)
         return
       }
 
       const mixList: MixRow[] = isArray<MixRow>(mixData) ? mixData : ((mixData ?? []) as MixRow[])
-      setMix(mixList)
-
-      // ---- Explore exposure logging (server-truth) ----
-      // Log only the top 12 cards, once per session, per (block_id, tag_id)
-      try {
-        const top = mixList.slice(0, 12)
-        for (let i = 0; i < top.length; i++) {
-          const r = top[i]
-          if (!r?.block_id || !r?.tag_id) continue
-
-          const key = `explore_imp_${r.block_id}_${r.tag_id}`
-          if (typeof window !== 'undefined' && sessionStorage.getItem(key)) continue
-          if (typeof window !== 'undefined') sessionStorage.setItem(key, '1')
-
-          // TS safety: if EventName union didn't update in this workspace yet,
-          // cast the literal to keep build green.
-          logEvent('explore_impression' as any, {
-            tag_id: r.tag_id,
-            meta: {
-              block_id: r.block_id,
-              bucket: r.bucket,
-              position: i + 1,
-              source: 'explore',
-            },
-          }).catch(() => {})
-        }
-      } catch {}
-
       const tagIds = Array.from(new Set(mixList.map((r) => r.tag_id).filter(Boolean)))
       if (!tagIds.length) {
-        setRows([])
+        setCards([])
         setLoading(false)
         return
       }
@@ -132,14 +150,15 @@ export default function ExploreClient() {
 
       if (tagsErr) {
         console.error('Error fetching tags:', tagsErr)
-        setRows([])
+        setCards([])
         setLoading(false)
         return
       }
 
       const tagsList: Tag[] = isArray<Tag>(tagsData) ? tagsData : ((tagsData ?? []) as Tag[])
+      const tagMap = new Map(tagsList.map((t) => [t.id, t]))
 
-      // 3) Feedback aggregation for ratings (optional)
+      // 3) Feedback aggregation (optional)
       let ratingMap: Record<string, { sum: number; count: number }> = {}
       const { data: feedback, error: fbErr } = await supabase
         .from('feedback')
@@ -158,61 +177,76 @@ export default function ExploreClient() {
         }
       }
 
-      const enriched: Tag[] = tagsList.map((t) => {
-        const r = ratingMap[t.id]
-        const avg = r && r.count > 0 ? r.sum / r.count : undefined
-        return { ...t, average_rating: avg }
-      })
+      // 4) Build ranked cards in the exact mix order
+      const built: Card[] = []
+      for (let i = 0; i < mixList.length; i++) {
+        const r = mixList[i]
+        const t0 = tagMap.get(r.tag_id)
+        if (!t0) continue
 
-      // 4) Apply reinforcement ordering (the whole point)
-      const tagMap = new Map(enriched.map((t) => [t.id, t]))
-      const ordered: Tag[] = mixList.map((r) => tagMap.get(r.tag_id)).filter(Boolean) as Tag[]
+        const rr = ratingMap[t0.id]
+        const avg = rr && rr.count > 0 ? rr.sum / rr.count : undefined
+        const tag: Tag = { ...t0, average_rating: avg }
 
-      setRows(ordered)
+        built.push({
+          tag,
+          block_id: r.block_id,
+          bucket: r.bucket,
+          final_rank_score: toNum(r.final_rank_score),
+          position: i + 1,
+        })
+      }
+
+      setCards(built)
       setLoading(false)
+
+      // ---- Explore exposure logging (server-truth) ----
+      // Log top 12 impressions in parallel; once per session per block_id
+      try {
+        const top = built.slice(0, 12)
+        await Promise.all(
+          top.map((c) =>
+            logExplore('explore_impression', c).catch(() => {})
+          )
+        )
+      } catch {}
     })()
-  }, [])
+  }, [logExplore])
 
-  const bucketByTagId = useMemo(() => {
-    const m = new Map<string, 'exploit' | 'explore'>()
-    for (const r of mix) m.set(r.tag_id, r.bucket)
-    return m
-  }, [mix])
-
-  const filtered = useMemo<Tag[]>(() => {
-    let out: Tag[] = rows
+  const filtered = useMemo<Card[]>(() => {
+    let out: Card[] = cards
 
     if (cat !== 'all') {
       const c = cat.toLowerCase()
-      out = out.filter((r) => (r.category || '').toLowerCase() === c)
+      out = out.filter((x) => (x.tag.category || '').toLowerCase() === c)
     }
 
     if (q.trim()) {
       const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
-      out = out.filter((r) =>
+      out = out.filter((x) =>
         terms.some(
           (t) =>
-            (r.title || '').toLowerCase().includes(t) ||
-            (r.description || '').toLowerCase().includes(t) ||
-            r.id.toLowerCase().includes(t)
+            (x.tag.title || '').toLowerCase().includes(t) ||
+            (x.tag.description || '').toLowerCase().includes(t) ||
+            x.tag.id.toLowerCase().includes(t)
         )
       )
     }
 
     switch (sort) {
       case 'featured':
-        out = out.slice().sort((a, b) => Number(b.featured) - Number(a.featured))
+        out = out.slice().sort((a, b) => Number(b.tag.featured) - Number(a.tag.featured))
         break
       case 'new':
         out = out.slice().sort((a, b) => {
-          const at = a.created_at ? new Date(a.created_at).getTime() : 0
-          const bt = b.created_at ? new Date(b.created_at).getTime() : 0
+          const at = a.tag.created_at ? new Date(a.tag.created_at).getTime() : 0
+          const bt = b.tag.created_at ? new Date(b.tag.created_at).getTime() : 0
           if (at !== bt) return bt - at
-          return b.id.localeCompare(a.id)
+          return b.tag.id.localeCompare(a.tag.id)
         })
         break
       case 'popular':
-        out = out.slice().sort((a, b) => (b.views || 0) - (a.views || 0))
+        out = out.slice().sort((a, b) => (b.tag.views || 0) - (a.tag.views || 0))
         break
       case 'reinforced':
       default:
@@ -221,7 +255,7 @@ export default function ExploreClient() {
     }
 
     return out
-  }, [rows, q, cat, sort])
+  }, [cards, q, cat, sort])
 
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk'
 
@@ -239,6 +273,7 @@ export default function ExploreClient() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
+
           <div className="flex gap-1">
             {CATEGORIES.map((c) => (
               <button
@@ -284,17 +319,17 @@ export default function ExploreClient() {
             </p>
           </div>
         ) : (
-          filtered.map((t) => {
-            const bucket = bucketByTagId.get(t.id) || null
+          filtered.map((c) => {
+            const t = c.tag
             const badge =
-              bucket === 'explore' ? (
+              c.bucket === 'explore' ? (
                 <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-800">Explore</span>
-              ) : bucket === 'exploit' ? (
+              ) : (
                 <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Top</span>
-              ) : null
+              )
 
             return (
-              <article key={t.id} className="border rounded-2xl p-4 bg-white">
+              <article key={`${c.block_id}_${t.id}`} className="border rounded-2xl p-4 bg-white">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-lg">{t.title}</h3>
@@ -316,16 +351,36 @@ export default function ExploreClient() {
                 </div>
 
                 <div className="mt-4 flex items-center gap-2">
-                  <Link href={`/tag/${t.id}`} className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm">
-                    Open
-                  </Link>
-                  <ShareButton
-                    url={`${origin}/tag/${t.id}`}
-                    title={`Check out "${t.title}" on OmniNet`}
+                  <Link
+                    href={`/tag/${t.id}`}
+                    onClick={() => {
+                      // Log open click once per session per block
+                      logExplore('explore_open_click', c).catch(() => {})
+                    }}
                     className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
                   >
-                    📣 Share
-                  </ShareButton>
+                    Open
+                  </Link>
+
+                  <ShareButton
+  url={`${origin}/tag/${t.id}`}
+  title={`Check out "${t.title}" on OmniNet`}
+  className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+  onClick={() => {
+    // attempt (user clicked share button)
+    logExplore('explore_share_click', c).catch(() => {})
+  }}
+  onShared={(method) => {
+    // success (user actually shared or copied)
+    if (method === 'share') {
+      logExplore('explore_share_success', c).catch(() => {})
+    } else {
+      logExplore('explore_copy_success', c).catch(() => {})
+    }
+  }}
+>
+  📣 Share
+</ShareButton>
                 </div>
               </article>
             )
