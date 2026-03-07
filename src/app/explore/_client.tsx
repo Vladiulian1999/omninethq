@@ -6,12 +6,13 @@ import { supabase } from '@/lib/supabase'
 import ShareButton from '@/components/ShareButton'
 import { Skeleton } from '@/components/Skeleton'
 import { BackButton } from '@/components/BackButton'
-import { logEvent } from '@/lib/analytics'
+import { logEvent, type EventName } from '@/lib/analytics'
 
 type MixRow = {
   block_id: string
   tag_id: string
   bucket: 'exploit' | 'explore'
+  boost_state: 'boost' | 'neutral' | 'throttle'
   final_rank_score: string | number | null
 }
 
@@ -37,6 +38,7 @@ type Card = {
   tag: Tag
   block_id: string
   bucket: 'exploit' | 'explore'
+  boost_state: 'boost' | 'neutral' | 'throttle'
   final_rank_score: number | null
   position: number
 }
@@ -77,24 +79,21 @@ function oncePerSession(key: string): boolean {
     sessionStorage.setItem(key, '1')
     return true
   } catch {
-    return true // if storage fails, don't block logging
+    return true
   }
 }
 
 export default function ExploreClient() {
   const [loading, setLoading] = useState(true)
-
-  // Store cards (ranked units), not just tags
   const [cards, setCards] = useState<Card[]>([])
 
-  // UI filters
   const [q, setQ] = useState('')
   const [cat, setCat] = useState<(typeof CATEGORIES)[number]>('all')
   const [sort, setSort] = useState<SortKey>('reinforced')
 
   const logExplore = useCallback(
     async (
-      event: string,
+      event: EventName,
       c: Card,
       extraMeta?: Record<string, unknown>
     ) => {
@@ -102,11 +101,12 @@ export default function ExploreClient() {
       const key = `explore_${event}_${c.block_id}`
       if (!oncePerSession(key)) return
 
-      await logEvent(event as any, {
+      await logEvent(event, {
         tag_id: c.tag.id,
         meta: {
           block_id: c.block_id,
           bucket: c.bucket,
+          boost_state: c.boost_state,
           position: c.position,
           final_rank_score: c.final_rank_score,
           source: 'explore',
@@ -121,8 +121,8 @@ export default function ExploreClient() {
     ;(async () => {
       setLoading(true)
 
-      // 1) Fetch ranked blocks (mix: exploit + explore)
-      const { data: mixData, error: mixErr } = await supabase.rpc('get_ranked_blocks_mix_v1', {
+      // Auto-boosted mix: exploit + explore
+      const { data: mixData, error: mixErr } = await supabase.rpc('get_ranked_blocks_mix_v2', {
         p_limit: 60,
       })
 
@@ -135,13 +135,13 @@ export default function ExploreClient() {
 
       const mixList: MixRow[] = isArray<MixRow>(mixData) ? mixData : ((mixData ?? []) as MixRow[])
       const tagIds = Array.from(new Set(mixList.map((r) => r.tag_id).filter(Boolean)))
+
       if (!tagIds.length) {
         setCards([])
         setLoading(false)
         return
       }
 
-      // 2) Fetch tag display fields
       const { data: tagsData, error: tagsErr } = await supabase
         .from('messages')
         .select('id, title, description, category, views, featured, hidden, created_at')
@@ -158,7 +158,6 @@ export default function ExploreClient() {
       const tagsList: Tag[] = isArray<Tag>(tagsData) ? tagsData : ((tagsData ?? []) as Tag[])
       const tagMap = new Map(tagsList.map((t) => [t.id, t]))
 
-      // 3) Feedback aggregation (optional)
       let ratingMap: Record<string, { sum: number; count: number }> = {}
       const { data: feedback, error: fbErr } = await supabase
         .from('feedback')
@@ -177,7 +176,6 @@ export default function ExploreClient() {
         }
       }
 
-      // 4) Build ranked cards in the exact mix order
       const built: Card[] = []
       for (let i = 0; i < mixList.length; i++) {
         const r = mixList[i]
@@ -192,6 +190,7 @@ export default function ExploreClient() {
           tag,
           block_id: r.block_id,
           bucket: r.bucket,
+          boost_state: r.boost_state ?? 'neutral',
           final_rank_score: toNum(r.final_rank_score),
           position: i + 1,
         })
@@ -200,14 +199,10 @@ export default function ExploreClient() {
       setCards(built)
       setLoading(false)
 
-      // ---- Explore exposure logging (server-truth) ----
-      // Log top 12 impressions in parallel; once per session per block_id
       try {
         const top = built.slice(0, 12)
         await Promise.all(
-          top.map((c) =>
-            logExplore('explore_impression', c).catch(() => {})
-          )
+          top.map((c) => logExplore('explore_impression', c).catch(() => {}))
         )
       } catch {}
     })()
@@ -250,7 +245,6 @@ export default function ExploreClient() {
         break
       case 'reinforced':
       default:
-        // Keep reinforcement order (already sorted)
         break
     }
 
@@ -286,8 +280,12 @@ export default function ExploreClient() {
             ))}
           </div>
 
-          <select className="border rounded-xl px-3 py-2 text-sm" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-            <option value="reinforced">Reinforced (A/B mix)</option>
+          <select
+            className="border rounded-xl px-3 py-2 text-sm"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            <option value="reinforced">Reinforced (Auto-Boost mix)</option>
             <option value="popular">Most scanned (legacy)</option>
             <option value="featured">Featured</option>
             <option value="new">New</option>
@@ -321,19 +319,24 @@ export default function ExploreClient() {
         ) : (
           filtered.map((c) => {
             const t = c.tag
-            const badge =
+
+            const primaryBadge =
               c.bucket === 'explore' ? (
                 <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-800">Explore</span>
+              ) : c.boost_state === 'boost' ? (
+                <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Boosted</span>
+              ) : c.boost_state === 'throttle' ? (
+                <span className="text-xs px-2 py-1 rounded-full bg-rose-100 text-rose-800">Throttled</span>
               ) : (
-                <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Top</span>
+                <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">Top</span>
               )
 
             return (
               <article key={`${c.block_id}_${t.id}`} className="border rounded-2xl p-4 bg-white">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg">{t.title}</h3>
-                    {badge}
+                    {primaryBadge}
                   </div>
 
                   {t.featured ? (
@@ -354,7 +357,6 @@ export default function ExploreClient() {
                   <Link
                     href={`/tag/${t.id}`}
                     onClick={() => {
-                      // Log open click once per session per block
                       logExplore('explore_open_click', c).catch(() => {})
                     }}
                     className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
@@ -363,24 +365,22 @@ export default function ExploreClient() {
                   </Link>
 
                   <ShareButton
-  url={`${origin}/tag/${t.id}`}
-  title={`Check out "${t.title}" on OmniNet`}
-  className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
-  onClick={() => {
-    // attempt (user clicked share button)
-    logExplore('explore_share_click', c).catch(() => {})
-  }}
-  onShared={(method) => {
-    // success (user actually shared or copied)
-    if (method === 'share') {
-      logExplore('explore_share_success', c).catch(() => {})
-    } else {
-      logExplore('explore_copy_success', c).catch(() => {})
-    }
-  }}
->
-  📣 Share
-</ShareButton>
+                    url={`${origin}/tag/${t.id}`}
+                    title={`Check out "${t.title}" on OmniNet`}
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                    onClick={() => {
+                      logExplore('explore_share_click', c).catch(() => {})
+                    }}
+                    onShared={(method) => {
+                      if (method === 'share') {
+                        logExplore('explore_share_success', c).catch(() => {})
+                      } else {
+                        logExplore('explore_copy_success', c).catch(() => {})
+                      }
+                    }}
+                  >
+                    📣 Share
+                  </ShareButton>
                 </div>
               </article>
             )
