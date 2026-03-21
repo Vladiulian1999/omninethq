@@ -275,6 +275,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [scanCount, setScanCount] = useState<number>(0);
+  const [viewCount, setViewCount] = useState<number>(0);
   const qrRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -295,9 +296,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     const fetchTag = async () => {
       const { data, error } = await supabase
         .from('messages')
-        .select('title, description, category, views, featured, user_id, bookings_enabled')
+        .select('title, description, category, featured, user_id, bookings_enabled')
         .eq('id', cleanId)
         .maybeSingle();
+
       if (error) setError(error.message);
       else setData(data);
     };
@@ -317,15 +319,46 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       setUserId(data?.user?.id || null);
     };
 
+    const fetchViews = async () => {
+      const { count, error } = await supabase
+        .from('analytics_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('event', 'view_tag')
+        .eq('tag_id', cleanId);
+
+      if (error) {
+        console.warn('view count failed:', error.message);
+        return;
+      }
+
+      setViewCount(count || 0);
+    };
+
     const logScan = async () => {
-      await supabase.from('scans').insert([{ tag_id: cleanId }]);
-      const { count } = await supabase.from('scans').select('*', { count: 'exact', head: true }).eq('tag_id', cleanId);
+      const { error: insertError } = await supabase.from('scans').insert([{ tag_id: cleanId }]);
+
+      if (insertError) {
+        console.warn('scan insert failed:', insertError.message);
+        return;
+      }
+
+      const { count, error: countError } = await supabase
+        .from('scans')
+        .select('*', { count: 'exact', head: true })
+        .eq('tag_id', cleanId);
+
+      if (countError) {
+        console.warn('scan count failed:', countError.message);
+        return;
+      }
+
       setScanCount(count || 0);
     };
 
     fetchTag();
     fetchFeedback();
     getUser();
+    fetchViews();
     logScan();
   }, [cleanId, supabase]);
 
@@ -623,7 +656,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     const json = await res.json();
     if (json?.url) window.location.href = json.url;
-      else toast.error('Checkout failed');
+    else toast.error('Checkout failed');
   }
 
   async function handleAvailabilityPrimaryAction(blockAny: AvailabilityBlockRow) {
@@ -771,7 +804,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             <div className="flex flex-wrap gap-4 text-sm text-amber-900/70">
               <span>Tag ID: {cleanId}</span>
               <span>{scanCount} scans</span>
-              {typeof data.views === 'number' && <span>{scanCount} views</span>}
+              <span>{viewCount} views</span>
             </div>
 
             <div className="flex flex-wrap gap-3">
