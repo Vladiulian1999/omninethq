@@ -5,4 +5,3 @@ export default function Page({ params }: { params: { id: string } }) {
   const cleanId = raw.startsWith('tag/') ? raw.slice(4) : raw;
   return <PrintClient tagId={cleanId} />;
 }
-
