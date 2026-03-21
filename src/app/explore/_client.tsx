@@ -21,17 +21,21 @@ type Tag = {
   title: string
   description: string | null
   category: string | null
-  views: number | null
   featured: boolean | null
   hidden?: boolean | null
   created_at?: string | null
   average_rating?: number
+  views?: number
 }
 
 type FeedbackRow = {
   tag_id: string
   rating: number
   hidden?: boolean | null
+}
+
+type AnalyticsViewRow = {
+  tag_id: string
 }
 
 type Card = {
@@ -121,7 +125,6 @@ export default function ExploreClient() {
     ;(async () => {
       setLoading(true)
 
-      // Auto-boosted mix: exploit + explore
       const { data: mixData, error: mixErr } = await supabase.rpc('get_ranked_blocks_mix_v2', {
         p_limit: 60,
       })
@@ -144,7 +147,7 @@ export default function ExploreClient() {
 
       const { data: tagsData, error: tagsErr } = await supabase
         .from('messages')
-        .select('id, title, description, category, views, featured, hidden, created_at')
+        .select('id, title, description, category, featured, hidden, created_at')
         .in('id', tagIds)
         .eq('hidden', false)
 
@@ -157,6 +160,26 @@ export default function ExploreClient() {
 
       const tagsList: Tag[] = isArray<Tag>(tagsData) ? tagsData : ((tagsData ?? []) as Tag[])
       const tagMap = new Map(tagsList.map((t) => [t.id, t]))
+
+      const viewMap: Record<string, number> = {}
+      const { data: viewRows, error: viewErr } = await supabase
+        .from('analytics_events')
+        .select('tag_id')
+        .eq('event', 'view_tag')
+        .in('tag_id', tagIds)
+
+      if (viewErr) {
+        console.error('Error fetching view counts:', viewErr)
+      } else {
+        const rows: AnalyticsViewRow[] = isArray<AnalyticsViewRow>(viewRows)
+          ? viewRows
+          : ((viewRows ?? []) as AnalyticsViewRow[])
+
+        for (const row of rows) {
+          if (!row.tag_id) continue
+          viewMap[row.tag_id] = (viewMap[row.tag_id] || 0) + 1
+        }
+      }
 
       let ratingMap: Record<string, { sum: number; count: number }> = {}
       const { data: feedback, error: fbErr } = await supabase
@@ -184,7 +207,13 @@ export default function ExploreClient() {
 
         const rr = ratingMap[t0.id]
         const avg = rr && rr.count > 0 ? rr.sum / rr.count : undefined
-        const tag: Tag = { ...t0, average_rating: avg }
+        const realViews = viewMap[t0.id] || 0
+
+        const tag: Tag = {
+          ...t0,
+          average_rating: avg,
+          views: realViews,
+        }
 
         built.push({
           tag,
@@ -286,7 +315,7 @@ export default function ExploreClient() {
             onChange={(e) => setSort(e.target.value as SortKey)}
           >
             <option value="reinforced">Reinforced (Auto-Boost mix)</option>
-            <option value="popular">Most scanned (legacy)</option>
+            <option value="popular">Most viewed</option>
             <option value="featured">Featured</option>
             <option value="new">New</option>
           </select>
@@ -348,7 +377,7 @@ export default function ExploreClient() {
 
                 <div className="mt-3 flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                   <CategoryPill category={t.category} />
-                  {typeof t.views === 'number' && <span>👁 {t.views}</span>}
+                  <span>👁 {t.views || 0}</span>
                   {typeof t.average_rating === 'number' && <span>⭐ {t.average_rating.toFixed(1)}</span>}
                   <span className="text-gray-400">ID: {t.id}</span>
                 </div>
