@@ -6,7 +6,6 @@ import { useParams, useRouter } from 'next/navigation';
 import toast, { Toaster } from 'react-hot-toast';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
-
 type BlockStatus = 'draft' | 'live' | 'paused' | 'sold_out' | 'expired';
 type ActionType = 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
 type Visibility = 'public' | 'unlisted' | 'private';
@@ -83,7 +82,7 @@ export default function AvailabilityClient() {
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Create form (fast minimal)
+  // Create form
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [actionType, setActionType] = useState<ActionType>('book');
@@ -104,7 +103,6 @@ export default function AvailabilityClient() {
     const uid = auth?.user?.id ?? null;
     setSessionUserId(uid);
 
-    // Owner-only page: if no session, bounce.
     if (!uid) {
       toast.error('You must be logged in to manage availability.');
       router.push('/login');
@@ -151,7 +149,6 @@ export default function AvailabilityClient() {
       return;
     }
 
-    // ✅ HARD GUARD: stop uuid errors early
     if (!sessionUserId || !isUuid(sessionUserId)) {
       toast.error('Invalid session. Please log out and log back in.');
       router.push('/login');
@@ -162,12 +159,23 @@ export default function AvailabilityClient() {
     const isUnlimited = total == null;
     const pence = penceFromText(priceText);
 
-    // Convert datetime-local -> ISO; empty -> null
     const startISO = startAt ? new Date(startAt).toISOString() : null;
     const endISO = endAt ? new Date(endAt).toISOString() : null;
 
     if (!startISO && endISO) {
       toast.error('Set a start time if you set an end time.');
+      return;
+    }
+
+    if (status === 'live') {
+      if (!startISO || !endISO) {
+        toast.error('Live availability requires both start and end time.');
+        return;
+      }
+    }
+
+    if (startISO && endISO && new Date(endISO).getTime() <= new Date(startISO).getTime()) {
+      toast.error('End time must be after start time.');
       return;
     }
 
@@ -179,7 +187,7 @@ export default function AvailabilityClient() {
       title: string;
     } = {
       tag_id: tagId,
-       owner_id: sessionUserId, // ✅ guaranteed uuid
+      owner_id: sessionUserId,
       title: t,
       description: description.trim() ? description.trim() : null,
       start_at: startISO,
@@ -226,6 +234,7 @@ export default function AvailabilityClient() {
       toast.error(error.message || 'Update failed.');
       return;
     }
+
     toast.success('Saved.');
     await loadAll();
   }
@@ -235,16 +244,43 @@ export default function AvailabilityClient() {
     if (!ok) return;
 
     setSaving(true);
-    const { error } = await supabase.from('availability_blocks').delete().eq('id', id);
-    setSaving(false);
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message || 'Delete failed.');
+    const { error } = await supabase.from('availability_blocks').delete().eq('id', id);
+
+    if (!error) {
+      setSaving(false);
+      toast.success('Deleted.');
+      await loadAll();
       return;
     }
-    toast.success('Deleted.');
-    await loadAll();
+
+    const message = error.message || 'Delete failed.';
+
+    if (
+      message.includes('analytics_events_block_id_fkey') ||
+      message.includes('violates foreign key constraint')
+    ) {
+      const { error: pauseError } = await supabase
+        .from('availability_blocks')
+        .update({ status: 'paused' })
+        .eq('id', id);
+
+      setSaving(false);
+
+      if (pauseError) {
+        console.error(pauseError);
+        toast.error('This block has activity and cannot be deleted. Auto-pause also failed.');
+        return;
+      }
+
+      toast.success('This block had activity, so it was paused instead of deleted.');
+      await loadAll();
+      return;
+    }
+
+    setSaving(false);
+    console.error(error);
+    toast.error(message);
   }
 
   async function duplicateBlock(b: AvailabilityBlock) {
@@ -258,15 +294,19 @@ export default function AvailabilityClient() {
 
     setSaving(true);
 
-    const copy: any = {
+    const copy: Partial<AvailabilityBlock> & {
+      tag_id: string;
+      owner_id: string;
+      title: string;
+    } = {
       tag_id: b.tag_id,
-       owner_id: sessionUserId,
+      owner_id: sessionUserId,
       title: `${b.title} (copy)`,
       description: b.description,
       start_at: b.start_at,
       end_at: b.end_at,
       timezone: b.timezone ?? 'Europe/London',
-      status: 'draft' as BlockStatus,
+      status: 'draft',
       action_type: b.action_type,
       visibility: b.visibility,
       price_pence: b.price_pence,
@@ -274,7 +314,7 @@ export default function AvailabilityClient() {
       sort_rank: b.sort_rank,
       meta: b.meta ?? null,
       capacity_total: b.capacity_total,
-      capacity_remaining: b.capacity_total == null ? null : b.capacity_total, // reset remaining
+      capacity_remaining: b.capacity_total == null ? null : b.capacity_total,
     };
 
     const { error } = await supabase.from('availability_blocks').insert(copy);
@@ -286,6 +326,7 @@ export default function AvailabilityClient() {
       toast.error(error.message || 'Duplicate failed.');
       return;
     }
+
     toast.success('Duplicated (draft).');
     await loadAll();
   }
@@ -354,7 +395,6 @@ export default function AvailabilityClient() {
         </div>
       </div>
 
-      {/* Create block */}
       <div className="rounded-2xl border p-4 sm:p-6 mb-8">
         <h2 className="text-lg font-semibold mb-3">Add availability</h2>
 
@@ -431,7 +471,9 @@ export default function AvailabilityClient() {
           </div>
 
           <div>
-            <label className="text-sm opacity-80">Start (optional)</label>
+            <label className="text-sm opacity-80">
+              Start {status === 'live' ? '(required for live)' : '(optional)'}
+            </label>
             <input
               type="datetime-local"
               value={startAt}
@@ -441,7 +483,9 @@ export default function AvailabilityClient() {
           </div>
 
           <div>
-            <label className="text-sm opacity-80">End (optional)</label>
+            <label className="text-sm opacity-80">
+              End {status === 'live' ? '(required for live)' : '(optional)'}
+            </label>
             <input
               type="datetime-local"
               value={endAt}
@@ -492,11 +536,12 @@ export default function AvailabilityClient() {
           >
             Add
           </button>
-          <p className="text-xs opacity-70">Keep it minimal. The goal is: update availability fast, not write essays.</p>
+          <p className="text-xs opacity-70">
+            Keep it minimal. The goal is: update availability fast, not write essays.
+          </p>
         </div>
       </div>
 
-      {/* Blocks list */}
       <div className="space-y-8">
         <Section
           title="Always available"
@@ -553,7 +598,13 @@ function Section(props: {
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3">
           {blocks.map((b) => (
-            <BlockCard key={b.id} b={b} onUpdate={props.onUpdate} onDelete={props.onDelete} onDuplicate={props.onDuplicate} />
+            <BlockCard
+              key={b.id}
+              b={b}
+              onUpdate={props.onUpdate}
+              onDelete={props.onDelete}
+              onDuplicate={props.onDuplicate}
+            />
           ))}
         </div>
       )}
@@ -609,15 +660,24 @@ function BlockCard(props: {
             {b.status === 'live' ? 'Pause' : 'Go live'}
           </button>
 
-          <button onClick={() => onUpdate(b.id, { status: 'sold_out' })} className="px-3 py-2 rounded-xl border hover:opacity-80">
+          <button
+            onClick={() => onUpdate(b.id, { status: 'sold_out' })}
+            className="px-3 py-2 rounded-xl border hover:opacity-80"
+          >
             Sold out
           </button>
 
-          <button onClick={() => onDuplicate(b)} className="px-3 py-2 rounded-xl border hover:opacity-80">
+          <button
+            onClick={() => onDuplicate(b)}
+            className="px-3 py-2 rounded-xl border hover:opacity-80"
+          >
             Duplicate
           </button>
 
-          <button onClick={() => onDelete(b.id)} className="px-3 py-2 rounded-xl border hover:opacity-80">
+          <button
+            onClick={() => onDelete(b.id)}
+            className="px-3 py-2 rounded-xl border hover:opacity-80"
+          >
             Delete
           </button>
         </div>
