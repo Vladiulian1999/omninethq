@@ -122,7 +122,7 @@ const blockPayload = {
   capacity_total: 1,
   capacity_remaining: 1,
   status: 'live',
-  action_type: 'instant',
+  action_type: 'book',
   price_pence: 0,
   currency: 'GBP',
   visibility: 'public',
