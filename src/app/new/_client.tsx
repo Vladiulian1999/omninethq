@@ -97,29 +97,38 @@ export default function NewTagClient() {
       return
     }
 
-    const now = new Date()
-    const sevenDaysLater = new Date(now)
-    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
+   const now = new Date()
+const sevenDaysLater = new Date(now)
+sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
 
-    const messagePayload = {
-      id: cleanedId,
-      title: title.trim(),
-      description: description.trim(),
-      category,
-      user_id: user.id,
-      featured: false,
-      hidden: false,
-    }
+const messagePayload = {
+  id: cleanedId,
+  title: title.trim(),
+  description: description.trim(),
+  category,
+  user_id: user.id,
+  featured: false,
+  hidden: false,
+}
 
-    const blockPayload = {
-      tag_id: cleanedId,
-      owner_id: user.id,
-      start_at: now.toISOString(),
-      end_at: sevenDaysLater.toISOString(),
-      status: 'live',
-      capacity: 1,
-      price: 0,
-    }
+const blockPayload = {
+  tag_id: cleanedId,
+  owner_id: user.id,
+  title: title.trim(),
+  description: description.trim(),
+  start_at: now.toISOString(),
+  end_at: sevenDaysLater.toISOString(),
+  timezone: 'Europe/London',
+  capacity_total: 1,
+  capacity_remaining: 1,
+  status: 'live',
+  action_type: 'instant',
+  price_pence: 0,
+  currency: 'GBP',
+  visibility: 'public',
+  sort_rank: 0,
+  meta: {},
+}
 
     const { error: messageError } = await supabase
       .from('messages')
