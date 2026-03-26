@@ -1,14 +1,24 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { User } from '@supabase/supabase-js'
 import { BackButton } from '@/components/BackButton'
 
 function generateId(prefix = 'tag') {
   const random = Math.random().toString(36).substring(2, 7)
   return `${prefix}-${random}`
+}
+
+function sanitizeTagId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
 }
 
 export default function NewTagClient() {
@@ -24,16 +34,23 @@ export default function NewTagClient() {
   const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
+    let mounted = true
+
     const getUser = async () => {
       const { data, error } = await supabase.auth.getUser()
+
+      if (!mounted) return
+
       if (error || !data?.user) {
-        router.push('/login')
-      } else {
-        setUser(data.user)
+        router.push('/login?next=/new')
+        return
       }
+
+      setUser(data.user)
     }
 
     getUser()
+
     setId(generateId())
 
     const t = searchParams.get('title')
@@ -43,9 +60,13 @@ export default function NewTagClient() {
     if (t) setTitle(t)
     if (d) setDescription(d)
     if (c) setCategory(c)
+
+    return () => {
+      mounted = false
+    }
   }, [router, searchParams])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError('')
@@ -56,32 +77,90 @@ export default function NewTagClient() {
       return
     }
 
-    const cleanedId = id.trim().toLowerCase().replace(/\s+/g, '-')
+    const cleanedId = sanitizeTagId(id)
 
-    const { error } = await supabase.from('messages').insert([{
+    if (!cleanedId) {
+      setError('Please enter a valid tag ID.')
+      setLoading(false)
+      return
+    }
+
+    if (!title.trim()) {
+      setError('Title is required.')
+      setLoading(false)
+      return
+    }
+
+    if (!description.trim()) {
+      setError('Description is required.')
+      setLoading(false)
+      return
+    }
+
+    const now = new Date()
+    const sevenDaysLater = new Date(now)
+    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
+
+    const messagePayload = {
       id: cleanedId,
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       category,
       user_id: user.id,
       featured: false,
       hidden: false,
-    }])
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.push(`/tag/${cleanedId}`)
     }
+
+    const blockPayload = {
+      tag_id: cleanedId,
+      owner_id: user.id,
+      start_at: now.toISOString(),
+      end_at: sevenDaysLater.toISOString(),
+      status: 'live',
+      capacity: 1,
+      price: 0,
+    }
+
+    const { error: messageError } = await supabase
+      .from('messages')
+      .insert([messagePayload])
+
+    if (messageError) {
+      setError(messageError.message)
+      setLoading(false)
+      return
+    }
+
+    const { error: blockError } = await supabase
+      .from('availability_blocks')
+      .insert([blockPayload])
+
+    if (blockError) {
+      // Roll back the tag so we do not leave dead inventory behind.
+      await supabase.from('messages').delete().eq('id', cleanedId)
+
+      setError(
+        `Tag was not fully created because the live block could not be created: ${blockError.message}`
+      )
+      setLoading(false)
+      return
+    }
+
+    router.push(`/tag/${cleanedId}`)
   }
 
   return (
     <div className="max-w-xl mx-auto px-4 py-6">
       <BackButton />
-      <h1 className="text-3xl font-bold mb-6 text-center">Create a New OmniTag</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded shadow">
+      <h1 className="text-3xl font-bold mb-6 text-center">
+        Create a New OmniTag
+      </h1>
+
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4 bg-white p-4 rounded shadow"
+      >
         <div className="flex gap-2">
           <input
             className="w-full border p-2 rounded"
@@ -129,7 +208,7 @@ export default function NewTagClient() {
         <button
           type="submit"
           disabled={loading}
-          className="bg-black text-white w-full px-4 py-2 rounded hover:bg-gray-800"
+          className="bg-black text-white w-full px-4 py-2 rounded hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {loading ? 'Creating...' : 'Create Tag'}
         </button>
