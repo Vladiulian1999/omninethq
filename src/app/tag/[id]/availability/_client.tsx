@@ -27,7 +27,7 @@ type AvailabilityBlock = {
   currency: string;
   visibility: Visibility;
   sort_rank: number;
-  meta: any | null;
+  meta: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };
@@ -71,6 +71,10 @@ function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
+function isAutoStarter(meta: Record<string, unknown> | null) {
+  return Boolean(meta && meta.autoStarter === true);
+}
+
 export default function AvailabilityClient() {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const router = useRouter();
@@ -82,17 +86,16 @@ export default function AvailabilityClient() {
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Create form
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [actionType, setActionType] = useState<ActionType>('book');
   const [visibility, setVisibility] = useState<Visibility>('public');
   const [status, setStatus] = useState<BlockStatus>('live');
-  const [startAt, setStartAt] = useState<string>(''); // datetime-local string
+  const [startAt, setStartAt] = useState<string>('');
   const [endAt, setEndAt] = useState<string>('');
   const [timezone, setTimezone] = useState('Europe/London');
-  const [capacityTotal, setCapacityTotal] = useState<string>(''); // blank => unlimited
-  const [priceText, setPriceText] = useState<string>(''); // in pounds
+  const [capacityTotal, setCapacityTotal] = useState<string>('');
+  const [priceText, setPriceText] = useState<string>('');
   const [currency, setCurrency] = useState('GBP');
 
   async function loadAll() {
@@ -140,6 +143,18 @@ export default function AvailabilityClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tagId]);
 
+  async function pauseExistingLiveBlocks() {
+    if (!tagId) return { error: null as string | null };
+
+    const { error } = await supabase
+      .from('availability_blocks')
+      .update({ status: 'paused' })
+      .eq('tag_id', tagId)
+      .eq('status', 'live');
+
+    return { error: error?.message ?? null };
+  }
+
   async function createBlock() {
     if (!tagId) return;
 
@@ -181,6 +196,15 @@ export default function AvailabilityClient() {
 
     setSaving(true);
 
+    if (status === 'live') {
+      const pauseResult = await pauseExistingLiveBlocks();
+      if (pauseResult.error) {
+        setSaving(false);
+        toast.error(`Could not prepare the tag for a new live block: ${pauseResult.error}`);
+        return;
+      }
+    }
+
     const payload: Partial<AvailabilityBlock> & {
       tag_id: string;
       owner_id: string;
@@ -214,7 +238,11 @@ export default function AvailabilityClient() {
       return;
     }
 
-    toast.success('Availability added.');
+    toast.success(status === 'live'
+      ? 'Availability added. Previous live blocks were paused.'
+      : 'Availability added.'
+    );
+
     setTitle('');
     setDescription('');
     setStartAt('');
@@ -226,7 +254,20 @@ export default function AvailabilityClient() {
 
   async function updateBlock(id: string, patch: Partial<AvailabilityBlock>) {
     setSaving(true);
+
+    const nextStatus = patch.status;
+
+    if (nextStatus === 'live') {
+      const pauseResult = await pauseExistingLiveBlocks();
+      if (pauseResult.error) {
+        setSaving(false);
+        toast.error(`Could not prepare the tag for a live block: ${pauseResult.error}`);
+        return;
+      }
+    }
+
     const { error } = await supabase.from('availability_blocks').update(patch).eq('id', id);
+
     setSaving(false);
 
     if (error) {
@@ -537,7 +578,7 @@ export default function AvailabilityClient() {
             Add
           </button>
           <p className="text-xs opacity-70">
-            Keep it minimal. The goal is: update availability fast, not write essays.
+            Creating a new live block will pause any currently live block for this tag first.
           </p>
         </div>
       </div>
@@ -545,7 +586,7 @@ export default function AvailabilityClient() {
       <div className="space-y-8">
         <Section
           title="Always available"
-          subtitle="No time window. Useful for ‘walk-ins’, ‘open orders’, ‘enquire’, etc."
+          subtitle="No time window. Useful for walk-ins, open orders, enquire, etc."
           blocks={grouped.always}
           onUpdate={updateBlock}
           onDelete={deleteBlock}
@@ -623,8 +664,8 @@ function BlockCard(props: {
   const money = fmtMoney(b.price_pence, b.currency);
   const start = fmtDT(b.start_at);
   const end = fmtDT(b.end_at);
-
   const cap = b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total}`;
+  const starter = isAutoStarter(b.meta);
 
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
@@ -633,11 +674,16 @@ function BlockCard(props: {
     <div className="rounded-2xl border p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-[240px]">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold">{b.title}</h3>
             <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
             <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
             <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
+            {starter && (
+              <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+                starter
+              </span>
+            )}
           </div>
 
           {b.description && <p className="text-sm opacity-80 mt-1">{b.description}</p>}

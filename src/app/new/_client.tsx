@@ -97,38 +97,38 @@ export default function NewTagClient() {
       return
     }
 
-   const now = new Date()
-const sevenDaysLater = new Date(now)
-sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
+    const now = new Date()
+    const sevenDaysLater = new Date(now)
+    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
 
-const messagePayload = {
-  id: cleanedId,
-  title: title.trim(),
-  description: description.trim(),
-  category,
-  user_id: user.id,
-  featured: false,
-  hidden: false,
-}
+    const messagePayload = {
+      id: cleanedId,
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      user_id: user.id,
+      featured: false,
+      hidden: false,
+    }
 
-const blockPayload = {
-  tag_id: cleanedId,
-  owner_id: user.id,
-  title: title.trim(),
-  description: description.trim(),
-  start_at: now.toISOString(),
-  end_at: sevenDaysLater.toISOString(),
-  timezone: 'Europe/London',
-  capacity_total: 1,
-  capacity_remaining: 1,
-  status: 'live',
-  action_type: 'book',
-  price_pence: 0,
-  currency: 'GBP',
-  visibility: 'public',
-  sort_rank: 0,
-  meta: {},
-}
+    const blockPayload = {
+      tag_id: cleanedId,
+      owner_id: user.id,
+      title: title.trim(),
+      description: description.trim(),
+      start_at: now.toISOString(),
+      end_at: sevenDaysLater.toISOString(),
+      timezone: 'Europe/London',
+      capacity_total: null,
+      capacity_remaining: null,
+      status: 'live',
+      action_type: 'reserve',
+      price_pence: null,
+      currency: 'GBP',
+      visibility: 'public',
+      sort_rank: 0,
+      meta: { autoStarter: true },
+    }
 
     const { error: messageError } = await supabase
       .from('messages')
@@ -145,11 +145,10 @@ const blockPayload = {
       .insert([blockPayload])
 
     if (blockError) {
-      // Roll back the tag so we do not leave dead inventory behind.
       await supabase.from('messages').delete().eq('id', cleanedId)
 
       setError(
-        `Tag was not fully created because the live block could not be created: ${blockError.message}`
+        `Tag was not fully created because the starter availability could not be created: ${blockError.message}`
       )
       setLoading(false)
       return
