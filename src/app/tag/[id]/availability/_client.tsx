@@ -32,6 +32,20 @@ type AvailabilityBlock = {
   updated_at: string;
 };
 
+type BlockFormState = {
+  title: string;
+  description: string;
+  startAt: string;
+  endAt: string;
+  timezone: string;
+  capacityTotal: string;
+  priceText: string;
+  currency: string;
+  status: BlockStatus;
+  actionType: ActionType;
+  visibility: Visibility;
+};
+
 function fmtMoney(pence: number | null, currency: string) {
   if (pence == null) return null;
   const amount = pence / 100;
@@ -50,6 +64,14 @@ function fmtDT(iso: string | null) {
   if (!iso) return null;
   const d = new Date(iso);
   return isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function toDatetimeLocal(iso: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function clampInt(v: string) {
@@ -75,6 +97,78 @@ function isAutoStarter(meta: Record<string, unknown> | null) {
   return Boolean(meta && meta.autoStarter === true);
 }
 
+function formFromBlock(b: AvailabilityBlock): BlockFormState {
+  return {
+    title: b.title ?? '',
+    description: b.description ?? '',
+    startAt: toDatetimeLocal(b.start_at),
+    endAt: toDatetimeLocal(b.end_at),
+    timezone: b.timezone || 'Europe/London',
+    capacityTotal: b.capacity_total == null ? '' : String(b.capacity_total),
+    priceText: b.price_pence == null ? '' : String(b.price_pence / 100),
+    currency: b.currency || 'GBP',
+    status: b.status,
+    actionType: b.action_type,
+    visibility: b.visibility,
+  };
+}
+
+function validateForm(form: BlockFormState) {
+  const title = form.title.trim();
+  if (!title) return 'Title is required.';
+
+  const startISO = form.startAt ? new Date(form.startAt).toISOString() : null;
+  const endISO = form.endAt ? new Date(form.endAt).toISOString() : null;
+
+  if (!startISO && endISO) return 'Set a start time if you set an end time.';
+
+  if (form.status === 'live') {
+    if (!startISO || !endISO) {
+      return 'Live availability requires both start and end time.';
+    }
+  }
+
+  if (startISO && endISO && new Date(endISO).getTime() <= new Date(startISO).getTime()) {
+    return 'End time must be after start time.';
+  }
+
+  const total = clampInt(form.capacityTotal);
+  if (form.capacityTotal.trim() !== '' && total == null) {
+    return 'Capacity must be a whole number or blank for unlimited.';
+  }
+
+  const price = penceFromText(form.priceText);
+  if (form.priceText.trim() !== '' && price == null) {
+    return 'Price must be a valid non-negative number.';
+  }
+
+  return null;
+}
+
+function patchFromForm(form: BlockFormState): Partial<AvailabilityBlock> {
+  const total = clampInt(form.capacityTotal);
+  const isUnlimited = total == null;
+  const pence = penceFromText(form.priceText);
+
+  const startISO = form.startAt ? new Date(form.startAt).toISOString() : null;
+  const endISO = form.endAt ? new Date(form.endAt).toISOString() : null;
+
+  return {
+    title: form.title.trim(),
+    description: form.description.trim() ? form.description.trim() : null,
+    start_at: startISO,
+    end_at: endISO,
+    timezone: form.timezone.trim() || 'Europe/London',
+    status: form.status,
+    action_type: form.actionType,
+    visibility: form.visibility,
+    price_pence: pence,
+    currency: form.currency || 'GBP',
+    capacity_total: isUnlimited ? null : total,
+    capacity_remaining: isUnlimited ? null : total,
+  };
+}
+
 export default function AvailabilityClient() {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const router = useRouter();
@@ -86,17 +180,24 @@ export default function AvailabilityClient() {
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [actionType, setActionType] = useState<ActionType>('book');
-  const [visibility, setVisibility] = useState<Visibility>('public');
-  const [status, setStatus] = useState<BlockStatus>('live');
-  const [startAt, setStartAt] = useState<string>('');
-  const [endAt, setEndAt] = useState<string>('');
-  const [timezone, setTimezone] = useState('Europe/London');
-  const [capacityTotal, setCapacityTotal] = useState<string>('');
-  const [priceText, setPriceText] = useState<string>('');
-  const [currency, setCurrency] = useState('GBP');
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  const [newForm, setNewForm] = useState<BlockFormState>({
+    title: '',
+    description: '',
+    startAt: '',
+    endAt: '',
+    timezone: 'Europe/London',
+    capacityTotal: '',
+    priceText: '',
+    currency: 'GBP',
+    status: 'live',
+    actionType: 'reserve',
+    visibility: 'public',
+  });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<BlockFormState | null>(null);
 
   async function loadAll() {
     if (!tagId) return;
@@ -143,26 +244,35 @@ export default function AvailabilityClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tagId]);
 
-  async function pauseExistingLiveBlocks() {
+  async function pauseOtherLiveBlocks(exceptId?: string) {
     if (!tagId) return { error: null as string | null };
 
-    const { error } = await supabase
+    let query = supabase
       .from('availability_blocks')
       .update({ status: 'paused' })
       .eq('tag_id', tagId)
       .eq('status', 'live');
 
+    if (exceptId) {
+      query = query.neq('id', exceptId);
+    }
+
+    const { error } = await query;
     return { error: error?.message ?? null };
+  }
+
+  function startEditing(block: AvailabilityBlock) {
+    setEditingId(block.id);
+    setEditForm(formFromBlock(block));
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditForm(null);
   }
 
   async function createBlock() {
     if (!tagId) return;
-
-    const t = title.trim();
-    if (!t) {
-      toast.error('Title is required.');
-      return;
-    }
 
     if (!sessionUserId || !isUuid(sessionUserId)) {
       toast.error('Invalid session. Please log out and log back in.');
@@ -170,40 +280,24 @@ export default function AvailabilityClient() {
       return;
     }
 
-    const total = clampInt(capacityTotal);
-    const isUnlimited = total == null;
-    const pence = penceFromText(priceText);
-
-    const startISO = startAt ? new Date(startAt).toISOString() : null;
-    const endISO = endAt ? new Date(endAt).toISOString() : null;
-
-    if (!startISO && endISO) {
-      toast.error('Set a start time if you set an end time.');
-      return;
-    }
-
-    if (status === 'live') {
-      if (!startISO || !endISO) {
-        toast.error('Live availability requires both start and end time.');
-        return;
-      }
-    }
-
-    if (startISO && endISO && new Date(endISO).getTime() <= new Date(startISO).getTime()) {
-      toast.error('End time must be after start time.');
+    const validationError = validateForm(newForm);
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 
     setSaving(true);
 
-    if (status === 'live') {
-      const pauseResult = await pauseExistingLiveBlocks();
+    if (newForm.status === 'live') {
+      const pauseResult = await pauseOtherLiveBlocks();
       if (pauseResult.error) {
         setSaving(false);
         toast.error(`Could not prepare the tag for a new live block: ${pauseResult.error}`);
         return;
       }
     }
+
+    const patch = patchFromForm(newForm);
 
     const payload: Partial<AvailabilityBlock> & {
       tag_id: string;
@@ -212,19 +306,19 @@ export default function AvailabilityClient() {
     } = {
       tag_id: tagId,
       owner_id: sessionUserId,
-      title: t,
-      description: description.trim() ? description.trim() : null,
-      start_at: startISO,
-      end_at: endISO,
-      timezone,
-      status,
-      action_type: actionType,
-      visibility,
-      price_pence: pence,
-      currency,
+      title: patch.title as string,
+      description: patch.description ?? null,
+      start_at: patch.start_at ?? null,
+      end_at: patch.end_at ?? null,
+      timezone: patch.timezone as string,
+      status: patch.status as BlockStatus,
+      action_type: patch.action_type as ActionType,
+      visibility: patch.visibility as Visibility,
+      price_pence: patch.price_pence ?? null,
+      currency: patch.currency as string,
       sort_rank: 0,
-      capacity_total: isUnlimited ? null : total,
-      capacity_remaining: isUnlimited ? null : total,
+      capacity_total: patch.capacity_total ?? null,
+      capacity_remaining: patch.capacity_remaining ?? null,
       meta: null,
     };
 
@@ -238,35 +332,87 @@ export default function AvailabilityClient() {
       return;
     }
 
-    toast.success(status === 'live'
-      ? 'Availability added. Previous live blocks were paused.'
-      : 'Availability added.'
+    toast.success(
+      newForm.status === 'live'
+        ? 'Availability added. Other live blocks were paused.'
+        : 'Availability added.'
     );
 
-    setTitle('');
-    setDescription('');
-    setStartAt('');
-    setEndAt('');
-    setCapacityTotal('');
-    setPriceText('');
+    setNewForm({
+      title: '',
+      description: '',
+      startAt: '',
+      endAt: '',
+      timezone: 'Europe/London',
+      capacityTotal: '',
+      priceText: '',
+      currency: 'GBP',
+      status: 'live',
+      actionType: 'reserve',
+      visibility: 'public',
+    });
+
+    setShowAddForm(false);
     await loadAll();
   }
 
-  async function updateBlock(id: string, patch: Partial<AvailabilityBlock>) {
+  async function saveEdit(blockId: string) {
+    if (!editForm) return;
+
+    const validationError = validateForm(editForm);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
     setSaving(true);
 
-    const nextStatus = patch.status;
-
-    if (nextStatus === 'live') {
-      const pauseResult = await pauseExistingLiveBlocks();
+    if (editForm.status === 'live') {
+      const pauseResult = await pauseOtherLiveBlocks(blockId);
       if (pauseResult.error) {
         setSaving(false);
-        toast.error(`Could not prepare the tag for a live block: ${pauseResult.error}`);
+        toast.error(`Could not prepare the tag for this live block: ${pauseResult.error}`);
         return;
       }
     }
 
-    const { error } = await supabase.from('availability_blocks').update(patch).eq('id', id);
+    const patch = patchFromForm(editForm);
+
+    const { error } = await supabase
+      .from('availability_blocks')
+      .update(patch)
+      .eq('id', blockId);
+
+    setSaving(false);
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'Save failed.');
+      return;
+    }
+
+    toast.success('Availability updated.');
+    setEditingId(null);
+    setEditForm(null);
+    await loadAll();
+  }
+
+  async function quickStatusChange(id: string, nextStatus: BlockStatus) {
+    setSaving(true);
+
+    if (nextStatus === 'live') {
+      const pauseResult = await pauseOtherLiveBlocks(id);
+      if (pauseResult.error) {
+        setSaving(false);
+        toast.error(`Could not prepare the tag for this live block: ${pauseResult.error}`);
+        return;
+      }
+    }
+
+    const { error } = await supabase
+      .from('availability_blocks')
+      .update({ status: nextStatus })
+      .eq('id', id);
 
     setSaving(false);
 
@@ -353,7 +499,7 @@ export default function AvailabilityClient() {
       price_pence: b.price_pence,
       currency: b.currency ?? 'GBP',
       sort_rank: b.sort_rank,
-      meta: b.meta ?? null,
+      meta: null,
       capacity_total: b.capacity_total,
       capacity_remaining: b.capacity_total == null ? null : b.capacity_total,
     };
@@ -368,7 +514,7 @@ export default function AvailabilityClient() {
       return;
     }
 
-    toast.success('Duplicated (draft).');
+    toast.success('Duplicated as draft.');
     await loadAll();
   }
 
@@ -416,9 +562,9 @@ export default function AvailabilityClient() {
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold">Availability</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold">Manage availability</h1>
           <p className="text-sm opacity-80 mt-1">
-            Add what’s actually available. Keep it simple. The public tag page stays clean.
+            Edit the availability you already have. Add another one only if you genuinely need a second slot or a different context.
           </p>
         </div>
 
@@ -437,178 +583,92 @@ export default function AvailabilityClient() {
       </div>
 
       <div className="rounded-2xl border p-4 sm:p-6 mb-8">
-        <h2 className="text-lg font-semibold mb-3">Add availability</h2>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Add another availability</h2>
+            <p className="text-sm opacity-80 mt-1">
+              Only use this if this tag needs an extra slot, offer, or time window.
+            </p>
+          </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="sm:col-span-2">
-            <label className="text-sm opacity-80">Title</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Skin fade, Lunch special, Tutoring slot"
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          <button
+            onClick={() => setShowAddForm((v) => !v)}
+            className="px-4 py-2 rounded-xl border hover:opacity-80"
+          >
+            {showAddForm ? 'Hide' : 'Add another'}
+          </button>
+        </div>
+
+        {showAddForm && (
+          <div className="mt-5">
+            <BlockEditorFields
+              form={newForm}
+              setForm={setNewForm}
             />
-          </div>
 
-          <div className="sm:col-span-2">
-            <label className="text-sm opacity-80">Description (optional)</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional details"
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent min-h-[90px]"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Action</label>
-            <select
-              value={actionType}
-              onChange={(e) => setActionType(e.target.value as ActionType)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-            >
-              <option value="book">Book</option>
-              <option value="reserve">Reserve</option>
-              <option value="order">Order</option>
-              <option value="enquire">Enquire</option>
-              <option value="pay">Pay</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Visibility</label>
-            <select
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as Visibility)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-            >
-              <option value="public">Public</option>
-              <option value="unlisted">Unlisted</option>
-              <option value="private">Private</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as BlockStatus)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-            >
-              <option value="live">Live</option>
-              <option value="draft">Draft</option>
-              <option value="paused">Paused</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Timezone</label>
-            <input
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-              placeholder="Europe/London"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">
-              Start {status === 'live' ? '(required for live)' : '(optional)'}
-            </label>
-            <input
-              type="datetime-local"
-              value={startAt}
-              onChange={(e) => setStartAt(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">
-              End {status === 'live' ? '(required for live)' : '(optional)'}
-            </label>
-            <input
-              type="datetime-local"
-              value={endAt}
-              onChange={(e) => setEndAt(e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Capacity (blank = unlimited)</label>
-            <input
-              value={capacityTotal}
-              onChange={(e) => setCapacityTotal(e.target.value)}
-              placeholder="e.g. 10"
-              className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-              inputMode="numeric"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm opacity-80">Price (optional, in GBP)</label>
-            <div className="flex gap-2">
-              <input
-                value={priceText}
-                onChange={(e) => setPriceText(e.target.value)}
-                placeholder="e.g. 25"
-                className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
-                inputMode="decimal"
-              />
-              <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="mt-1 px-3 py-2 rounded-xl border bg-transparent"
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={createBlock}
+                disabled={saving || loading}
+                className="px-4 py-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-50"
               >
-                <option value="GBP">GBP</option>
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-              </select>
+                Add
+              </button>
+              <p className="text-xs opacity-70">
+                If you save this as live, any other live block for this tag will be paused first.
+              </p>
             </div>
           </div>
-        </div>
-
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={createBlock}
-            disabled={saving || loading}
-            className="px-4 py-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-50"
-          >
-            Add
-          </button>
-          <p className="text-xs opacity-70">
-            Creating a new live block will pause any currently live block for this tag first.
-          </p>
-        </div>
+        )}
       </div>
 
       <div className="space-y-8">
         <Section
           title="Always available"
-          subtitle="No time window. Useful for walk-ins, open orders, enquire, etc."
+          subtitle="No time window. Useful for walk-ins, open orders, enquiries, etc."
           blocks={grouped.always}
-          onUpdate={updateBlock}
+          editingId={editingId}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onStartEdit={startEditing}
+          onCancelEdit={cancelEditing}
+          onSaveEdit={saveEdit}
+          onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          saving={saving}
         />
 
         <Section
           title="Upcoming"
-          subtitle="Time-based availability (next slots / specials)."
+          subtitle="Time-based availability such as slots, offers, or limited windows."
           blocks={grouped.upcoming}
-          onUpdate={updateBlock}
+          editingId={editingId}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onStartEdit={startEditing}
+          onCancelEdit={cancelEditing}
+          onSaveEdit={saveEdit}
+          onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          saving={saving}
         />
 
         <Section
           title="Past / ended"
-          subtitle="Not public if end time has passed (even if status wasn’t updated)."
+          subtitle="Not public if end time has passed, even if status was not updated."
           blocks={grouped.pastish}
-          onUpdate={updateBlock}
+          editingId={editingId}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onStartEdit={startEditing}
+          onCancelEdit={cancelEditing}
+          onSaveEdit={saveEdit}
+          onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          saving={saving}
           muted
         />
       </div>
@@ -618,13 +678,160 @@ export default function AvailabilityClient() {
   );
 }
 
+function BlockEditorFields(props: {
+  form: BlockFormState;
+  setForm: React.Dispatch<React.SetStateAction<BlockFormState>>;
+}) {
+  const { form, setForm } = props;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="sm:col-span-2">
+        <label className="text-sm opacity-80">Title</label>
+        <input
+          value={form.title}
+          onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          placeholder="e.g. Lunch special, tutoring slot, haircut booking"
+        />
+      </div>
+
+      <div className="sm:col-span-2">
+        <label className="text-sm opacity-80">Description (optional)</label>
+        <textarea
+          value={form.description}
+          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent min-h-[90px]"
+          placeholder="Optional details"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Action</label>
+        <select
+          value={form.actionType}
+          onChange={(e) => setForm((f) => ({ ...f, actionType: e.target.value as ActionType }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+        >
+          <option value="book">Book</option>
+          <option value="reserve">Reserve</option>
+          <option value="order">Order</option>
+          <option value="enquire">Enquire</option>
+          <option value="pay">Pay</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Visibility</label>
+        <select
+          value={form.visibility}
+          onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value as Visibility }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+        >
+          <option value="public">Public</option>
+          <option value="unlisted">Unlisted</option>
+          <option value="private">Private</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Status</label>
+        <select
+          value={form.status}
+          onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as BlockStatus }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+        >
+          <option value="live">Live</option>
+          <option value="draft">Draft</option>
+          <option value="paused">Paused</option>
+          <option value="sold_out">Sold out</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Timezone</label>
+        <input
+          value={form.timezone}
+          onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          placeholder="Europe/London"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">
+          Start {form.status === 'live' ? '(required for live)' : '(optional)'}
+        </label>
+        <input
+          type="datetime-local"
+          value={form.startAt}
+          onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">
+          End {form.status === 'live' ? '(required for live)' : '(optional)'}
+        </label>
+        <input
+          type="datetime-local"
+          value={form.endAt}
+          onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Capacity (blank = unlimited)</label>
+        <input
+          value={form.capacityTotal}
+          onChange={(e) => setForm((f) => ({ ...f, capacityTotal: e.target.value }))}
+          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          placeholder="e.g. 10"
+          inputMode="numeric"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm opacity-80">Price (optional)</label>
+        <div className="flex gap-2">
+          <input
+            value={form.priceText}
+            onChange={(e) => setForm((f) => ({ ...f, priceText: e.target.value }))}
+            className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+            placeholder="e.g. 25"
+            inputMode="decimal"
+          />
+          <select
+            value={form.currency}
+            onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+            className="mt-1 px-3 py-2 rounded-xl border bg-transparent"
+          >
+            <option value="GBP">GBP</option>
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Section(props: {
   title: string;
   subtitle?: string;
   blocks: AvailabilityBlock[];
-  onUpdate: (id: string, patch: Partial<AvailabilityBlock>) => Promise<void>;
+  editingId: string | null;
+  editForm: BlockFormState | null;
+  setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
+  onStartEdit: (b: AvailabilityBlock) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (id: string) => Promise<void>;
+  onQuickStatusChange: (id: string, nextStatus: BlockStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDuplicate: (b: AvailabilityBlock) => Promise<void>;
+  saving: boolean;
   muted?: boolean;
 }) {
   const { title, subtitle, blocks, muted } = props;
@@ -642,9 +849,16 @@ function Section(props: {
             <BlockCard
               key={b.id}
               b={b}
-              onUpdate={props.onUpdate}
+              editing={props.editingId === b.id}
+              editForm={props.editingId === b.id ? props.editForm : null}
+              setEditForm={props.setEditForm}
+              onStartEdit={props.onStartEdit}
+              onCancelEdit={props.onCancelEdit}
+              onSaveEdit={props.onSaveEdit}
+              onQuickStatusChange={props.onQuickStatusChange}
               onDelete={props.onDelete}
               onDuplicate={props.onDuplicate}
+              saving={props.saving}
             />
           ))}
         </div>
@@ -655,30 +869,114 @@ function Section(props: {
 
 function BlockCard(props: {
   b: AvailabilityBlock;
-  onUpdate: (id: string, patch: Partial<AvailabilityBlock>) => Promise<void>;
+  editing: boolean;
+  editForm: BlockFormState | null;
+  setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
+  onStartEdit: (b: AvailabilityBlock) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (id: string) => Promise<void>;
+  onQuickStatusChange: (id: string, nextStatus: BlockStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDuplicate: (b: AvailabilityBlock) => Promise<void>;
+  saving: boolean;
 }) {
-  const { b, onUpdate, onDelete, onDuplicate } = props;
+  const {
+    b,
+    editing,
+    editForm,
+    setEditForm,
+    onStartEdit,
+    onCancelEdit,
+    onSaveEdit,
+    onQuickStatusChange,
+    onDelete,
+    onDuplicate,
+    saving,
+  } = props;
 
   const money = fmtMoney(b.price_pence, b.currency);
   const start = fmtDT(b.start_at);
   const end = fmtDT(b.end_at);
   const cap = b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total}`;
   const starter = isAutoStarter(b.meta);
-
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
   return (
     <div className="rounded-2xl border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-[240px]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold">{b.title}</h3>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
+      {!editing ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-[240px]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold">{b.title}</h3>
+              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
+              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
+              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
+              {starter && (
+                <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+                  starter
+                </span>
+              )}
+            </div>
+
+            {b.description && <p className="text-sm opacity-80 mt-1">{b.description}</p>}
+
+            <div className="text-sm opacity-80 mt-2 space-y-1">
+              <div>Time: {start ? `${start}${end ? ` → ${end}` : ''}` : 'Always'}</div>
+              <div>
+                Capacity: {cap}
+                {isSoldOut ? ' (sold out)' : ''}
+              </div>
+              {money && <div>Price: {money}</div>}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => onStartEdit(b)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              Edit
+            </button>
+
+            <button
+              onClick={() => onQuickStatusChange(b.id, b.status === 'live' ? 'paused' : 'live')}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              {b.status === 'live' ? 'Pause' : 'Go live'}
+            </button>
+
+            <button
+              onClick={() => onQuickStatusChange(b.id, 'sold_out')}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              Sold out
+            </button>
+
+            <button
+              onClick={() => onDuplicate(b)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              Duplicate
+            </button>
+
+            <button
+              onClick={() => onDelete(b.id)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <h3 className="font-semibold">Edit availability</h3>
             {starter && (
               <span className="text-xs px-2 py-1 rounded-full border opacity-80">
                 starter
@@ -686,48 +984,36 @@ function BlockCard(props: {
             )}
           </div>
 
-          {b.description && <p className="text-sm opacity-80 mt-1">{b.description}</p>}
+          {editForm && (
+            <BlockEditorFields
+              form={editForm}
+              setForm={setEditForm as React.Dispatch<React.SetStateAction<BlockFormState>>}
+            />
+          )}
 
-          <div className="text-sm opacity-80 mt-2 space-y-1">
-            <div>Time: {start ? `${start}${end ? ` → ${end}` : ''}` : 'Always'}</div>
-            <div>
-              Capacity: {cap}
-              {isSoldOut ? ' (sold out)' : ''}
-            </div>
-            {money && <div>Price: {money}</div>}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => onSaveEdit(b.id)}
+              className="px-4 py-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-50"
+              disabled={saving}
+            >
+              Save changes
+            </button>
+
+            <button
+              onClick={onCancelEdit}
+              className="px-4 py-2 rounded-xl border hover:opacity-80"
+              disabled={saving}
+            >
+              Cancel
+            </button>
           </div>
+
+          <p className="text-xs opacity-70 mt-3">
+            Saving this block as live will pause any other live block for this tag.
+          </p>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => onUpdate(b.id, { status: b.status === 'live' ? 'paused' : 'live' })}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
-            {b.status === 'live' ? 'Pause' : 'Go live'}
-          </button>
-
-          <button
-            onClick={() => onUpdate(b.id, { status: 'sold_out' })}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
-            Sold out
-          </button>
-
-          <button
-            onClick={() => onDuplicate(b)}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
-            Duplicate
-          </button>
-
-          <button
-            onClick={() => onDelete(b.id)}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
