@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast, { Toaster } from 'react-hot-toast';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import { BackButton } from '@/components/BackButton';
 
 type BlockStatus = 'draft' | 'live' | 'paused' | 'sold_out' | 'expired';
 type ActionType = 'book' | 'order' | 'reserve' | 'enquire' | 'pay';
@@ -95,6 +96,39 @@ function isUuid(v: string) {
 
 function isAutoStarter(meta: Record<string, unknown> | null) {
   return Boolean(meta && meta.autoStarter === true);
+}
+
+function isLiveNow(block: AvailabilityBlock) {
+  if (block.status !== 'live') return false;
+
+  const now = Date.now();
+  const start = block.start_at ? new Date(block.start_at).getTime() : null;
+  const end = block.end_at ? new Date(block.end_at).getTime() : null;
+
+  if (start && now < start) return false;
+  if (end && now > end) return false;
+
+  return true;
+}
+
+function isScheduled(block: AvailabilityBlock) {
+  if (block.status !== 'live') return false;
+  if (!block.start_at) return false;
+  return new Date(block.start_at).getTime() > Date.now();
+}
+
+function timeUntil(start: string) {
+  const diff = new Date(start).getTime() - Date.now();
+  const mins = Math.floor(diff / 60000);
+
+  if (mins < 1) return 'starting now';
+  if (mins < 60) return `starts in ${mins} min`;
+
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `starts in ${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  return `starts in ${days}d`;
 }
 
 function formFromBlock(b: AvailabilityBlock): BlockFormState {
@@ -332,10 +366,17 @@ export default function AvailabilityClient() {
       return;
     }
 
+    const futureLive =
+      newForm.status === 'live' &&
+      !!newForm.startAt &&
+      new Date(newForm.startAt).getTime() > Date.now();
+
     toast.success(
-      newForm.status === 'live'
-        ? 'Availability added. Other live blocks were paused.'
-        : 'Availability added.'
+      futureLive
+        ? 'Availability added. It is scheduled for later and will only appear in Explore when its time starts.'
+        : newForm.status === 'live'
+          ? 'Availability added. Other live blocks were paused.'
+          : 'Availability added.'
     );
 
     setNewForm({
@@ -391,7 +432,17 @@ export default function AvailabilityClient() {
       return;
     }
 
-    toast.success('Availability updated.');
+    const futureLive =
+      editForm.status === 'live' &&
+      !!editForm.startAt &&
+      new Date(editForm.startAt).getTime() > Date.now();
+
+    toast.success(
+      futureLive
+        ? 'Availability updated. It is scheduled for later and will only appear in Explore when its time starts.'
+        : 'Availability updated.'
+    );
+
     setEditingId(null);
     setEditForm(null);
     await loadAll();
@@ -560,6 +611,10 @@ export default function AvailabilityClient() {
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
       <Toaster />
 
+      <div className="mb-4">
+        <BackButton />
+      </div>
+
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-semibold">Manage availability</h1>
@@ -601,10 +656,7 @@ export default function AvailabilityClient() {
 
         {showAddForm && (
           <div className="mt-5">
-            <BlockEditorFields
-              form={newForm}
-              setForm={setNewForm}
-            />
+            <BlockEditorFields form={newForm} setForm={setNewForm} />
 
             <div className="mt-4 flex items-center gap-3">
               <button
@@ -899,6 +951,9 @@ function BlockCard(props: {
   const end = fmtDT(b.end_at);
   const cap = b.capacity_total == null ? 'Unlimited' : `${b.capacity_remaining ?? 0}/${b.capacity_total}`;
   const starter = isAutoStarter(b.meta);
+  const liveNow = isLiveNow(b);
+  const scheduled = isScheduled(b);
+
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
@@ -912,9 +967,22 @@ function BlockCard(props: {
               <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
               <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
               <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
+
               {starter && (
                 <span className="text-xs px-2 py-1 rounded-full border opacity-80">
                   starter
+                </span>
+              )}
+
+              {liveNow && (
+                <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                  LIVE NOW
+                </span>
+              )}
+
+              {scheduled && b.start_at && (
+                <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                  SCHEDULED · {timeUntil(b.start_at)}
                 </span>
               )}
             </div>
