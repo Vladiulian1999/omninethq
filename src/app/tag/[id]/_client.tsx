@@ -598,6 +598,57 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     return `avail:${cleanId}:${block.id}:${at}:${quantity}:${anon}`;
   }
 
+  function isBlockLiveNow(block: Pick<AvailabilityBlockRow, 'status' | 'start_at' | 'end_at' | 'visibility'>) {
+    if (block.status !== 'live') return false;
+    if (block.visibility !== 'public') return false;
+
+    const now = Date.now();
+    const start = block.start_at ? new Date(block.start_at).getTime() : null;
+    const end = block.end_at ? new Date(block.end_at).getTime() : null;
+
+    if (start && start > now) return false;
+    if (end && end < now) return false;
+
+    return true;
+  }
+
+  async function resolveActionableBlock(clickedBlock: AvailabilityBlockRow): Promise<AvailabilityBlockRow> {
+    const { data: exact, error: exactError } = await supabase
+      .from('availability_blocks')
+      .select('*')
+      .eq('id', clickedBlock.id)
+      .eq('tag_id', cleanId)
+      .maybeSingle();
+
+    if (exactError) {
+      throw new Error('Could not verify availability right now.');
+    }
+
+    if (exact && isBlockLiveNow(exact as AvailabilityBlockRow)) {
+      return exact as AvailabilityBlockRow;
+    }
+
+    const { data: candidates, error: candidatesError } = await supabase
+      .from('availability_blocks')
+      .select('*')
+      .eq('tag_id', cleanId)
+      .eq('status', 'live')
+      .eq('visibility', 'public')
+      .order('start_at', { ascending: true });
+
+    if (candidatesError) {
+      throw new Error('Could not load current availability.');
+    }
+
+    const liveNow = ((candidates ?? []) as AvailabilityBlockRow[]).find((b) => isBlockLiveNow(b));
+
+    if (!liveNow) {
+      throw new Error('No reservable availability is active right now.');
+    }
+
+    return liveNow;
+  }
+
   async function claimAvailability(block: AvailabilityBlockRow, quantity = 1) {
     const idempotencyKey = makeAvailabilityIdempotencyKey(block, quantity);
 
@@ -612,7 +663,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       p_meta: { source: 'tag_page', action_type: block.action_type },
     });
 
-    if (error) throw error;
+    if (error) {
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('availability block not found')) {
+        throw new Error('This availability is no longer active. Please refresh and try again.');
+      }
+      throw error;
+    }
+
     const row = (data as any)?.[0];
     if (!row?.action_id) throw new Error('Claim failed (no action_id returned).');
     return row as { action_id: string; action_status: string; block_id: string; block_remaining: number };
@@ -660,9 +718,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }
 
   async function handleAvailabilityPrimaryAction(blockAny: AvailabilityBlockRow) {
-    const block = blockAny;
-
     try {
+      const block = await resolveActionableBlock(blockAny);
+
       await logEvent('availability_click', {
         tag_id: cleanId,
         meta: {
@@ -672,13 +730,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         },
       }).catch(() => {});
 
-      // 1) Always claim atomically first (consumes capacity once)
       const claim = await claimAvailability(block, 1);
 
-      // 2) Refresh public availability so sold-out moves to "Just Missed"
       setAvailabilityRefreshKey((k) => k + 1);
 
-      // 3) Now route based on action type
       if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
         toast.success('Slot claimed. Continue below to complete your request.');
         document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
