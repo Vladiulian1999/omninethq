@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -8,6 +8,38 @@ import Link from 'next/link'
 type Props = {
   tagId: string
   enabled: boolean
+}
+
+type BookingFlowMode = 'book' | 'reserve' | 'order' | 'enquire'
+
+type BookingContext = {
+  mode: BookingFlowMode
+  blockId?: string | null
+  title?: string | null
+  startAt?: string | null
+  endAt?: string | null
+}
+
+function getContextKey(tagId: string) {
+  return `omni_booking_ctx_${tagId}`
+}
+
+function fmtWindow(startAt?: string | null, endAt?: string | null) {
+  if (!startAt && !endAt) return null
+
+  const start = startAt ? new Date(startAt) : null
+  const end = endAt ? new Date(endAt) : null
+
+  const safe = (d: Date | null) => {
+    if (!d || Number.isNaN(d.getTime())) return null
+    return d.toLocaleString()
+  }
+
+  const s = safe(start)
+  const e = safe(end)
+
+  if (s && e) return `${s} → ${e}`
+  return s || e
 }
 
 export default function BookingRequestForm({ tagId, enabled }: Props) {
@@ -19,6 +51,7 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
   const [loading, setLoading] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [ctx, setCtx] = useState<BookingContext | null>(null)
 
   const nextPath =
     typeof window !== 'undefined' ? window.location.pathname : `/tag/${tagId}`
@@ -28,6 +61,35 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
       setUserId(data?.user?.id ?? null)
     })
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    try {
+      const raw = sessionStorage.getItem(getContextKey(tagId))
+      if (!raw) {
+        setCtx(null)
+        return
+      }
+
+      const parsed = JSON.parse(raw) as BookingContext
+      setCtx(parsed)
+
+      if (parsed.mode !== 'book' && parsed.startAt) {
+        setPreferredAt(parsed.startAt)
+      }
+    } catch {
+      setCtx(null)
+    }
+  }, [tagId])
+
+  const mode: BookingFlowMode = ctx?.mode || 'book'
+  const isBookingMode = mode === 'book'
+  const isReserveLike = mode === 'reserve' || mode === 'order' || mode === 'enquire'
+  const reservedWindow = useMemo(
+    () => fmtWindow(ctx?.startAt, ctx?.endAt),
+    [ctx?.startAt, ctx?.endAt]
+  )
 
   if (!enabled) {
     return (
@@ -48,7 +110,7 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
           >
             log in
           </Link>{' '}
-          to request a booking.
+          to continue.
         </p>
       </div>
     )
@@ -56,31 +118,50 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
 
   async function submitBooking(e: React.FormEvent) {
     e.preventDefault()
-    if (!name || !email || !preferredAt) {
-      toast.error('Please fill in name, email, and date/time')
+
+    if (!name.trim()) {
+      toast.error('Please enter your name')
       return
     }
 
+    if (isBookingMode) {
+      if (!email.trim() || !preferredAt) {
+        toast.error('Please fill in name, email, and date/time')
+        return
+      }
+    }
+
     setLoading(true)
+
     try {
-      const { error } = await supabase.from('bookings').insert([
-        {
-          tag_id: tagId,
-          requester_name: name.trim(),
-          requester_email: email.trim(),
-          requester_phone: phone.trim() || null,
-          preferred_at: new Date(preferredAt).toISOString(),
-          message: message.trim() || null,
-          status: 'pending',
-        },
-      ])
+      const derivedPreferredAt =
+        isBookingMode
+          ? new Date(preferredAt).toISOString()
+          : ctx?.startAt
+            ? new Date(ctx.startAt).toISOString()
+            : null
+
+      const payload = {
+        tag_id: tagId,
+        requester_name: name.trim(),
+        requester_email: email.trim() || null,
+        requester_phone: phone.trim() || null,
+        preferred_at: derivedPreferredAt,
+        message: message.trim() || null,
+        status: 'pending',
+      }
+
+      const { error } = await supabase.from('bookings').insert([payload])
 
       if (error) throw error
+
       setSuccess(true)
-      toast.success('🎉 Booking request sent!')
+      toast.success(
+        isBookingMode ? '🎉 Booking request sent!' : '🎉 Reservation details sent!'
+      )
     } catch (err) {
       console.error(err)
-      toast.error('❌ Failed to submit booking')
+      toast.error('❌ Failed to submit request')
     } finally {
       setLoading(false)
     }
@@ -89,7 +170,6 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
   if (success) {
     return (
       <div className="p-8 border rounded-2xl bg-gradient-to-br from-green-50 to-white shadow-md text-center">
-        {/* Animated checkmark */}
         <div className="flex justify-center mb-4">
           <svg
             className="w-16 h-16 text-green-600 animate-bounce"
@@ -101,15 +181,25 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
+
         <h3 className="text-lg font-semibold text-green-700 mb-2">
-          Request Sent Successfully!
+          {isBookingMode ? 'Request Sent Successfully!' : 'Reservation Sent Successfully!'}
         </h3>
+
         <p className="text-sm text-gray-600 mb-4">
-          We’ve received your booking request. You’ll hear back soon at{' '}
-          <span className="font-medium">{email}</span>.
+          {isBookingMode
+            ? "We've received your booking request."
+            : "We've received your reservation details."}
+          {email ? (
+            <>
+              {' '}You’ll hear back soon at <span className="font-medium">{email}</span>.
+            </>
+          ) : null}
         </p>
-        <div className="text-sm text-gray-500">
-          <p>📅 {new Date(preferredAt).toLocaleString()}</p>
+
+        <div className="text-sm text-gray-500 space-y-1">
+          {reservedWindow && <p>🕒 {reservedWindow}</p>}
+          {preferredAt && isBookingMode && <p>📅 {new Date(preferredAt).toLocaleString()}</p>}
           {phone && <p>📞 {phone}</p>}
           {message && <p>💬 {message}</p>}
         </div>
@@ -122,10 +212,16 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
       onSubmit={submitBooking}
       className="space-y-6 p-6 border rounded-2xl bg-gradient-to-br from-white via-gray-50 to-gray-100 shadow-md text-left max-w-2xl mx-auto"
     >
-      {/* Contact Info */}
       <div>
-        <h3 className="text-lg font-semibold mb-2">👤 Contact Info</h3>
-        <p className="text-xs text-gray-500 mb-4">We’ll use these details to confirm your booking.</p>
+        <h3 className="text-lg font-semibold mb-2">
+          {isBookingMode ? '👤 Contact Info' : '👤 Reservation Details'}
+        </h3>
+        <p className="text-xs text-gray-500 mb-4">
+          {isBookingMode
+            ? 'We’ll use these details to confirm your booking.'
+            : 'Add your name so the owner can match this reservation to you.'}
+        </p>
+
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium">Your Name *</label>
@@ -137,17 +233,21 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
               required
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium">Email *</label>
+            <label className="block text-sm font-medium">
+              {isBookingMode ? 'Email *' : 'Email (optional)'}
+            </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-200"
-              required
+              required={isBookingMode}
             />
           </div>
         </div>
+
         <div className="mt-3">
           <label className="block text-sm font-medium">Phone (optional)</label>
           <input
@@ -159,20 +259,30 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
         </div>
       </div>
 
-      {/* Appointment */}
-      <div>
-        <h3 className="text-lg font-semibold mb-2">📅 Appointment</h3>
-        <p className="text-xs text-gray-500 mb-4">Choose your preferred date and time.</p>
-        <input
-          type="datetime-local"
-          value={preferredAt}
-          onChange={(e) => setPreferredAt(e.target.value)}
-          className="w-full px-3 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-200"
-          required
-        />
-      </div>
+      {isBookingMode ? (
+        <div>
+          <h3 className="text-lg font-semibold mb-2">📅 Appointment</h3>
+          <p className="text-xs text-gray-500 mb-4">Choose your preferred date and time.</p>
+          <input
+            type="datetime-local"
+            value={preferredAt}
+            onChange={(e) => setPreferredAt(e.target.value)}
+            className="w-full px-3 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-200"
+            required
+          />
+        </div>
+      ) : (
+        <div>
+          <h3 className="text-lg font-semibold mb-2">🕒 Live Availability</h3>
+          <p className="text-xs text-gray-500 mb-4">
+            This reservation uses the time window already attached to the live availability.
+          </p>
+          <div className="w-full px-3 py-3 border rounded-lg bg-gray-50 text-sm text-gray-700">
+            {reservedWindow || 'This availability is active now.'}
+          </div>
+        </div>
+      )}
 
-      {/* Extra Notes */}
       <div>
         <h3 className="text-lg font-semibold mb-2">💬 Extra Notes</h3>
         <textarea
@@ -180,17 +290,24 @@ export default function BookingRequestForm({ tagId, enabled }: Props) {
           onChange={(e) => setMessage(e.target.value)}
           className="w-full px-3 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-200"
           rows={4}
-          placeholder="Any extra details the owner should know?"
+          placeholder={
+            isBookingMode
+              ? 'Any extra details the owner should know?'
+              : 'Optional note for the owner'
+          }
         />
       </div>
 
-      {/* Submit */}
       <button
         type="submit"
         disabled={loading}
         className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:from-blue-700 hover:to-indigo-700 transition disabled:opacity-50"
       >
-        {loading ? 'Sending Request…' : '🚀 Send Booking Request'}
+        {loading
+          ? 'Sending…'
+          : isBookingMode
+            ? '🚀 Send Booking Request'
+            : '🚀 Confirm Reservation Details'}
       </button>
     </form>
   )

@@ -735,10 +735,27 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       setAvailabilityRefreshKey((k) => k + 1);
 
       if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
-        toast.success('Slot claimed. Continue below to complete your request.');
-        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
-        return;
-      }
+  try {
+    sessionStorage.setItem(
+      `omni_booking_ctx_${cleanId}`,
+      JSON.stringify({
+        mode: block.action_type,
+        blockId: block.id,
+        title: block.title ?? null,
+        startAt: block.start_at ?? null,
+        endAt: block.end_at ?? null,
+      })
+    );
+  } catch {}
+
+  toast.success(
+    block.action_type === 'book'
+      ? 'Slot claimed. Continue below to complete your booking request.'
+      : 'Reservation claimed. Add your details below.'
+  );
+  document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
+  return;
+}
 
       if (block.action_type === 'pay' || block.action_type === 'order') {
         await startCheckoutForBlock(block, claim.action_id);
