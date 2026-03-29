@@ -33,21 +33,6 @@ type AvailabilityBlock = {
   updated_at: string;
 };
 
-type AvailabilityClaim = {
-  id?: string | null;
-  action_id?: string | null;
-  block_id?: string | null;
-  status?: string | null;
-  quantity?: number | null;
-  customer_name?: string | null;
-  customer_contact?: string | null;
-  channel?: string | null;
-  referral_code?: string | null;
-  meta?: Record<string, unknown> | null;
-  created_at?: string | null;
-  [key: string]: unknown;
-};
-
 type BlockFormState = {
   title: string;
   description: string;
@@ -218,33 +203,6 @@ function patchFromForm(form: BlockFormState): Partial<AvailabilityBlock> {
   };
 }
 
-function claimPrimaryId(c: AvailabilityClaim) {
-  return String(c.action_id ?? c.id ?? '').trim();
-}
-
-function claimDisplayName(c: AvailabilityClaim) {
-  const name = String(c.customer_name ?? '').trim();
-  const contact = String(c.customer_contact ?? '').trim();
-  if (name && contact) return `${name} • ${contact}`;
-  if (name) return name;
-  if (contact) return contact;
-  return 'Anonymous / no contact';
-}
-
-function claimQuantity(c: AvailabilityClaim) {
-  const q = Number(c.quantity ?? 1);
-  if (!Number.isFinite(q) || q < 1) return 1;
-  return Math.floor(q);
-}
-
-function claimStatus(c: AvailabilityClaim) {
-  return String(c.status ?? 'claimed').trim() || 'claimed';
-}
-
-function shorten(v: string, n = 8) {
-  return v.length > n ? `${v.slice(0, n)}…` : v;
-}
-
 export default function AvailabilityClient() {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const router = useRouter();
@@ -255,8 +213,6 @@ export default function AvailabilityClient() {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
   const [saving, setSaving] = useState(false);
-  const [claimsLoading, setClaimsLoading] = useState(false);
-  const [claimsByBlock, setClaimsByBlock] = useState<Record<string, AvailabilityClaim[]>>({});
 
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -276,39 +232,6 @@ export default function AvailabilityClient() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<BlockFormState | null>(null);
-
-  async function loadClaims(blockIds: string[]) {
-    if (blockIds.length === 0) {
-      setClaimsByBlock({});
-      return;
-    }
-
-    setClaimsLoading(true);
-
-    const { data, error } = await supabase
-      .from('availability_actions')
-      .select('*')
-      .in('block_id', blockIds)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Failed to load availability claims:', error);
-      setClaimsByBlock({});
-      setClaimsLoading(false);
-      return;
-    }
-
-    const grouped: Record<string, AvailabilityClaim[]> = {};
-    for (const row of ((data ?? []) as AvailabilityClaim[])) {
-      const blockId = String(row.block_id ?? '').trim();
-      if (!blockId) continue;
-      if (!grouped[blockId]) grouped[blockId] = [];
-      grouped[blockId].push(row);
-    }
-
-    setClaimsByBlock(grouped);
-    setClaimsLoading(false);
-  }
 
   async function loadAll() {
     if (!tagId) return;
@@ -342,14 +265,11 @@ export default function AvailabilityClient() {
       console.error(error);
       toast.error('Failed to load availability blocks.');
       setBlocks([]);
-      setClaimsByBlock({});
       setLoading(false);
       return;
     }
 
-    const rows = (data ?? []) as AvailabilityBlock[];
-    setBlocks(rows);
-    await loadClaims(rows.map((b) => b.id));
+    setBlocks((data ?? []) as AvailabilityBlock[]);
     setLoading(false);
   }
 
@@ -710,7 +630,7 @@ export default function AvailabilityClient() {
           <button
             onClick={() => loadAll()}
             className="px-3 py-2 rounded-xl border hover:opacity-80"
-            disabled={loading || saving || claimsLoading}
+            disabled={loading || saving}
           >
             Refresh
           </button>
@@ -754,26 +674,11 @@ export default function AvailabilityClient() {
         )}
       </div>
 
-      <div className="mb-6 rounded-2xl border p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Recent claims visibility</h2>
-            <p className="text-sm opacity-80 mt-1">
-              Each block now shows its latest claims below. This is the owner-side reaction layer you were missing.
-            </p>
-          </div>
-          <div className="text-xs opacity-70">
-            {claimsLoading ? 'Refreshing claims…' : 'Claims loaded from availability_actions'}
-          </div>
-        </div>
-      </div>
-
       <div className="space-y-8">
         <Section
           title="Always available"
           subtitle="No time window. Useful for walk-ins, open orders, enquiries, etc."
           blocks={grouped.always}
-          claimsByBlock={claimsByBlock}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -790,7 +695,6 @@ export default function AvailabilityClient() {
           title="Upcoming"
           subtitle="Time-based availability such as slots, offers, or limited windows."
           blocks={grouped.upcoming}
-          claimsByBlock={claimsByBlock}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -807,7 +711,6 @@ export default function AvailabilityClient() {
           title="Past / ended"
           subtitle="Not public if end time has passed, even if status was not updated."
           blocks={grouped.pastish}
-          claimsByBlock={claimsByBlock}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -971,7 +874,6 @@ function Section(props: {
   title: string;
   subtitle?: string;
   blocks: AvailabilityBlock[];
-  claimsByBlock: Record<string, AvailabilityClaim[]>;
   editingId: string | null;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -999,7 +901,6 @@ function Section(props: {
             <BlockCard
               key={b.id}
               b={b}
-              claims={props.claimsByBlock[b.id] ?? []}
               editing={props.editingId === b.id}
               editForm={props.editingId === b.id ? props.editForm : null}
               setEditForm={props.setEditForm}
@@ -1020,7 +921,6 @@ function Section(props: {
 
 function BlockCard(props: {
   b: AvailabilityBlock;
-  claims: AvailabilityClaim[];
   editing: boolean;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -1034,7 +934,6 @@ function BlockCard(props: {
 }) {
   const {
     b,
-    claims,
     editing,
     editForm,
     setEditForm,
@@ -1058,13 +957,11 @@ function BlockCard(props: {
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
-  const recentClaims = claims.slice(0, 6);
-
   return (
     <div className="rounded-2xl border p-4">
       {!editing ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-[240px] flex-1">
+          <div className="min-w-[240px]">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold">{b.title}</h3>
               <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
@@ -1099,59 +996,6 @@ function BlockCard(props: {
                 {isSoldOut ? ' (sold out)' : ''}
               </div>
               {money && <div>Price: {money}</div>}
-            </div>
-
-            <div className="mt-4 rounded-xl border bg-black/[0.02] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">Recent claims</div>
-                  <div className="text-xs opacity-70">
-                    {claims.length === 0 ? 'No claims yet.' : `${claims.length} total claim${claims.length === 1 ? '' : 's'}`}
-                  </div>
-                </div>
-              </div>
-
-              {recentClaims.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {recentClaims.map((claim) => {
-                    const id = claimPrimaryId(claim);
-                    const created = fmtDT(claim.created_at ?? null);
-                    const qty = claimQuantity(claim);
-                    const status = claimStatus(claim);
-                    const channel = String(claim.channel ?? '').trim();
-                    const referral = String(claim.referral_code ?? '').trim();
-
-                    return (
-                      <div key={`${b.id}-${id || Math.random()}`} className="rounded-lg border bg-white p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{claimDisplayName(claim)}</span>
-                          <span className="text-xs px-2 py-1 rounded-full border opacity-80">{status}</span>
-                          <span className="text-xs px-2 py-1 rounded-full border opacity-80">qty {qty}</span>
-                          {channel && (
-                            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
-                          )}
-                        </div>
-
-                        <div className="mt-2 text-xs opacity-70 space-y-1">
-                          {created && <div>When: {created}</div>}
-                          {id && <div>Action: {shorten(id, 12)}</div>}
-                          {referral && <div>Referral: {referral}</div>}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {claims.length > recentClaims.length && (
-                    <div className="text-xs opacity-70">
-                      Showing latest {recentClaims.length} of {claims.length} claims.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="mt-3 text-sm opacity-70">
-                  Nothing has been claimed on this block yet.
-                </div>
-              )}
             </div>
           </div>
 
@@ -1241,3 +1085,4 @@ function BlockCard(props: {
     </div>
   );
 }
+

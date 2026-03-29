@@ -249,7 +249,7 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
         router.replace(url.pathname, { scroll: false });
       }
     })();
-  }, [sp, ownerId, router, supabase]);
+  }, [sp, ownerId, router, supabase, cleanId]);
 
   return null;
 }
@@ -673,7 +673,33 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
     const row = (data as any)?.[0];
     if (!row?.action_id) throw new Error('Claim failed (no action_id returned).');
-    return row as { action_id: string; action_status: string; block_id: string; block_remaining: number };
+    return row as {
+      action_id: string;
+      action_status: string;
+      block_id: string;
+      block_remaining: number;
+    };
+  }
+
+  async function notifyAvailabilityAction(params: {
+    actionId: string;
+    blockId: string;
+    tagId: string;
+  }) {
+    const { error } = await supabase.functions.invoke('availability-notify', {
+      body: {
+        type: 'CLAIM',
+        record: {
+          action_id: params.actionId,
+          block_id: params.blockId,
+          tag_id: params.tagId,
+        },
+      },
+    });
+
+    if (error) {
+      console.error('availability-notify failed', error);
+    }
   }
 
   async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
@@ -734,28 +760,40 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
       setAvailabilityRefreshKey((k) => k + 1);
 
-      if (block.action_type === 'book' || block.action_type === 'reserve' || block.action_type === 'enquire') {
-  try {
-    sessionStorage.setItem(
-      `omni_booking_ctx_${cleanId}`,
-      JSON.stringify({
-        mode: block.action_type,
+      void notifyAvailabilityAction({
+        actionId: claim.action_id,
         blockId: block.id,
-        title: block.title ?? null,
-        startAt: block.start_at ?? null,
-        endAt: block.end_at ?? null,
-      })
-    );
-  } catch {}
+        tagId: cleanId,
+      });
 
-  toast.success(
-    block.action_type === 'book'
-      ? 'Slot claimed. Continue below to complete your booking request.'
-      : 'Reservation claimed. Add your details below.'
-  );
-  document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
-  return;
-}
+      if (block.action_type === 'book') {
+        try {
+          sessionStorage.setItem(
+            `omni_booking_ctx_${cleanId}`,
+            JSON.stringify({
+              mode: block.action_type,
+              blockId: block.id,
+              title: block.title ?? null,
+              startAt: block.start_at ?? null,
+              endAt: block.end_at ?? null,
+            })
+          );
+        } catch {}
+
+        toast.success('Slot claimed. Continue below to complete your booking request.');
+        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+
+      if (block.action_type === 'reserve') {
+        toast.success('Reserved successfully. Show this tag to staff if needed.');
+        return;
+      }
+
+      if (block.action_type === 'enquire') {
+        toast.success('Availability claimed. We will add a lighter enquiry flow next.');
+        return;
+      }
 
       if (block.action_type === 'pay' || block.action_type === 'order') {
         await startCheckoutForBlock(block, claim.action_id);
@@ -961,10 +999,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                   ch === 'whatsapp'
                     ? 'WhatsApp'
                     : ch === 'sms'
-                    ? 'SMS'
-                    : ch === 'copy'
-                    ? 'Copy Link'
-                    : 'Share';
+                      ? 'SMS'
+                      : ch === 'copy'
+                        ? 'Copy Link'
+                        : 'Share';
 
                 return (
                   <button
