@@ -45,6 +45,7 @@ type AvailabilityClaim = {
   referral_code?: string | null;
   meta?: Record<string, unknown> | null;
   created_at?: string | null;
+  updated_at?: string | null;
   [key: string]: unknown;
 };
 
@@ -238,11 +239,41 @@ function claimQuantity(c: AvailabilityClaim) {
 }
 
 function claimStatus(c: AvailabilityClaim) {
-  return String(c.status ?? 'claimed').trim() || 'claimed';
+  return String(c.status ?? 'initiated').trim() || 'initiated';
 }
 
 function shorten(v: string, n = 8) {
   return v.length > n ? `${v.slice(0, n)}…` : v;
+}
+
+function isPhoneLike(v: string) {
+  const cleaned = v.replace(/[^\d+]/g, '');
+  return cleaned.length >= 7;
+}
+
+function phoneHref(v: string) {
+  return `tel:${v.replace(/[^\d+]/g, '')}`;
+}
+
+function smsHref(v: string) {
+  return `sms:${v.replace(/[^\d+]/g, '')}`;
+}
+
+function ownerMeta(claim: AvailabilityClaim) {
+  return (claim.meta && typeof claim.meta === 'object' ? claim.meta : {}) as Record<string, unknown>;
+}
+
+function ownerFlag(claim: AvailabilityClaim, key: string) {
+  return Boolean(ownerMeta(claim)[key]);
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success('Copied.');
+  } catch {
+    toast.error('Copy failed.');
+  }
 }
 
 export default function AvailabilityClient() {
@@ -257,6 +288,7 @@ export default function AvailabilityClient() {
   const [saving, setSaving] = useState(false);
   const [claimsLoading, setClaimsLoading] = useState(false);
   const [claimsByBlock, setClaimsByBlock] = useState<Record<string, AvailabilityClaim[]>>({});
+  const [claimSavingId, setClaimSavingId] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -649,6 +681,74 @@ export default function AvailabilityClient() {
     await loadAll();
   }
 
+  async function updateClaimMeta(claim: AvailabilityClaim, patch: Record<string, unknown>) {
+    const id = String(claim.id ?? '').trim();
+    if (!id) {
+      toast.error('Claim id missing.');
+      return;
+    }
+
+    setClaimSavingId(id);
+
+    const nextMeta = {
+      ...(ownerMeta(claim) || {}),
+      ...patch,
+      owner_action_updated_at: new Date().toISOString(),
+      owner_action_updated_by: sessionUserId,
+    };
+
+    const { error } = await supabase
+      .from('availability_actions')
+      .update({ meta: nextMeta })
+      .eq('id', id);
+
+    setClaimSavingId(null);
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to update claim.');
+      return;
+    }
+
+    toast.success('Claim updated.');
+    await loadAll();
+  }
+
+  async function confirmClaim(claim: AvailabilityClaim) {
+    const id = String(claim.id ?? '').trim();
+    if (!id) {
+      toast.error('Claim id missing.');
+      return;
+    }
+
+    setClaimSavingId(id);
+
+    const nextMeta = {
+      ...(ownerMeta(claim) || {}),
+      owner_confirmed_at: new Date().toISOString(),
+      owner_confirmed_by: sessionUserId,
+    };
+
+    const { error } = await supabase
+      .from('availability_actions')
+      .update({
+        status: 'confirmed',
+        meta: nextMeta,
+      })
+      .eq('id', id);
+
+    setClaimSavingId(null);
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to confirm claim.');
+      return;
+    }
+
+    toast.success('Claim confirmed.');
+    await loadAll();
+  }
+
   const grouped = useMemo(() => {
     const upcoming: AvailabilityBlock[] = [];
     const always: AvailabilityBlock[] = [];
@@ -710,7 +810,7 @@ export default function AvailabilityClient() {
           <button
             onClick={() => loadAll()}
             className="px-3 py-2 rounded-xl border hover:opacity-80"
-            disabled={loading || saving || claimsLoading}
+            disabled={loading || saving || claimsLoading || !!claimSavingId}
           >
             Refresh
           </button>
@@ -759,7 +859,7 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Recent claims visibility</h2>
             <p className="text-sm opacity-80 mt-1">
-              Each block now shows its latest claims below. This is the owner-side reaction layer you were missing.
+              Each block now shows its latest claims with real owner actions.
             </p>
           </div>
           <div className="text-xs opacity-70">
@@ -774,6 +874,7 @@ export default function AvailabilityClient() {
           subtitle="No time window. Useful for walk-ins, open orders, enquiries, etc."
           blocks={grouped.always}
           claimsByBlock={claimsByBlock}
+          claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -783,6 +884,19 @@ export default function AvailabilityClient() {
           onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          onConfirmClaim={confirmClaim}
+          onMarkContacted={(claim) =>
+            updateClaimMeta(claim, {
+              owner_contacted: true,
+              owner_contacted_at: new Date().toISOString(),
+            })
+          }
+          onMarkClosed={(claim) =>
+            updateClaimMeta(claim, {
+              owner_closed: true,
+              owner_closed_at: new Date().toISOString(),
+            })
+          }
           saving={saving}
         />
 
@@ -791,6 +905,7 @@ export default function AvailabilityClient() {
           subtitle="Time-based availability such as slots, offers, or limited windows."
           blocks={grouped.upcoming}
           claimsByBlock={claimsByBlock}
+          claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -800,6 +915,19 @@ export default function AvailabilityClient() {
           onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          onConfirmClaim={confirmClaim}
+          onMarkContacted={(claim) =>
+            updateClaimMeta(claim, {
+              owner_contacted: true,
+              owner_contacted_at: new Date().toISOString(),
+            })
+          }
+          onMarkClosed={(claim) =>
+            updateClaimMeta(claim, {
+              owner_closed: true,
+              owner_closed_at: new Date().toISOString(),
+            })
+          }
           saving={saving}
         />
 
@@ -808,6 +936,7 @@ export default function AvailabilityClient() {
           subtitle="Not public if end time has passed, even if status was not updated."
           blocks={grouped.pastish}
           claimsByBlock={claimsByBlock}
+          claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -817,6 +946,19 @@ export default function AvailabilityClient() {
           onQuickStatusChange={quickStatusChange}
           onDelete={deleteBlock}
           onDuplicate={duplicateBlock}
+          onConfirmClaim={confirmClaim}
+          onMarkContacted={(claim) =>
+            updateClaimMeta(claim, {
+              owner_contacted: true,
+              owner_contacted_at: new Date().toISOString(),
+            })
+          }
+          onMarkClosed={(claim) =>
+            updateClaimMeta(claim, {
+              owner_closed: true,
+              owner_closed_at: new Date().toISOString(),
+            })
+          }
           saving={saving}
           muted
         />
@@ -972,6 +1114,7 @@ function Section(props: {
   subtitle?: string;
   blocks: AvailabilityBlock[];
   claimsByBlock: Record<string, AvailabilityClaim[]>;
+  claimSavingId: string | null;
   editingId: string | null;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -981,6 +1124,9 @@ function Section(props: {
   onQuickStatusChange: (id: string, nextStatus: BlockStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDuplicate: (b: AvailabilityBlock) => Promise<void>;
+  onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
   saving: boolean;
   muted?: boolean;
 }) {
@@ -1000,6 +1146,7 @@ function Section(props: {
               key={b.id}
               b={b}
               claims={props.claimsByBlock[b.id] ?? []}
+              claimSavingId={props.claimSavingId}
               editing={props.editingId === b.id}
               editForm={props.editingId === b.id ? props.editForm : null}
               setEditForm={props.setEditForm}
@@ -1009,6 +1156,9 @@ function Section(props: {
               onQuickStatusChange={props.onQuickStatusChange}
               onDelete={props.onDelete}
               onDuplicate={props.onDuplicate}
+              onConfirmClaim={props.onConfirmClaim}
+              onMarkContacted={props.onMarkContacted}
+              onMarkClosed={props.onMarkClosed}
               saving={props.saving}
             />
           ))}
@@ -1021,6 +1171,7 @@ function Section(props: {
 function BlockCard(props: {
   b: AvailabilityBlock;
   claims: AvailabilityClaim[];
+  claimSavingId: string | null;
   editing: boolean;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -1030,11 +1181,15 @@ function BlockCard(props: {
   onQuickStatusChange: (id: string, nextStatus: BlockStatus) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDuplicate: (b: AvailabilityBlock) => Promise<void>;
+  onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
   saving: boolean;
 }) {
   const {
     b,
     claims,
+    claimSavingId,
     editing,
     editForm,
     setEditForm,
@@ -1044,6 +1199,9 @@ function BlockCard(props: {
     onQuickStatusChange,
     onDelete,
     onDuplicate,
+    onConfirmClaim,
+    onMarkContacted,
+    onMarkClosed,
     saving,
   } = props;
 
@@ -1113,16 +1271,22 @@ function BlockCard(props: {
 
               {recentClaims.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {recentClaims.map((claim) => {
+                  {recentClaims.map((claim, index) => {
                     const id = claimPrimaryId(claim);
+                    const rowId = String(claim.id ?? '').trim();
                     const created = fmtDT(claim.created_at ?? null);
                     const qty = claimQuantity(claim);
                     const status = claimStatus(claim);
                     const channel = String(claim.channel ?? '').trim();
                     const referral = String(claim.referral_code ?? '').trim();
+                    const contact = String(claim.customer_contact ?? '').trim();
+                    const savingThisClaim = claimSavingId === rowId;
+                    const contacted = ownerFlag(claim, 'owner_contacted');
+                    const closed = ownerFlag(claim, 'owner_closed');
+                    const confirmed = status === 'confirmed';
 
                     return (
-                      <div key={`${b.id}-${id || Math.random()}`} className="rounded-lg border bg-white p-3 text-sm">
+                      <div key={`${b.id}-${id || index}`} className="rounded-lg border bg-white p-3 text-sm">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{claimDisplayName(claim)}</span>
                           <span className="text-xs px-2 py-1 rounded-full border opacity-80">{status}</span>
@@ -1130,12 +1294,90 @@ function BlockCard(props: {
                           {channel && (
                             <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
                           )}
+                          {confirmed && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                              CONFIRMED
+                            </span>
+                          )}
+                          {contacted && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                              CONTACTED
+                            </span>
+                          )}
+                          {closed && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                              CLOSED
+                            </span>
+                          )}
                         </div>
 
                         <div className="mt-2 text-xs opacity-70 space-y-1">
                           {created && <div>When: {created}</div>}
                           {id && <div>Action: {shorten(id, 12)}</div>}
                           {referral && <div>Referral: {referral}</div>}
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!confirmed && (
+                            <button
+                              type="button"
+                              onClick={() => onConfirmClaim(claim)}
+                              disabled={savingThisClaim}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                            >
+                              Confirm
+                            </button>
+                          )}
+
+                          {!contacted && (
+                            <button
+                              type="button"
+                              onClick={() => onMarkContacted(claim)}
+                              disabled={savingThisClaim}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                            >
+                              Mark contacted
+                            </button>
+                          )}
+
+                          {!closed && (
+                            <button
+                              type="button"
+                              onClick={() => onMarkClosed(claim)}
+                              disabled={savingThisClaim}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                            >
+                              Close
+                            </button>
+                          )}
+
+                          {contact && (
+                            <button
+                              type="button"
+                              onClick={() => copyText(contact)}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80"
+                            >
+                              Copy contact
+                            </button>
+                          )}
+
+                          {contact && isPhoneLike(contact) && (
+                            <a
+                              href={phoneHref(contact)}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80"
+                            >
+                              Call
+                            </a>
+                          )}
+
+                          {contact && isPhoneLike(contact) && (
+                            <a
+                              href={smsHref(contact)}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80"
+                            >
+                              SMS
+                            </a>
+                          )}
                         </div>
                       </div>
                     );
