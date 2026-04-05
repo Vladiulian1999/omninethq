@@ -30,6 +30,16 @@ type Props = {
   scanChartData: { date: string; count: number }[];
 };
 
+type ClaimConfirmationState = {
+  actionId: string;
+  blockId: string;
+  actionType: string;
+  title: string | null;
+  startAt: string | null;
+  endAt: string | null;
+  quantity: number;
+};
+
 /* =========================
    A/B experiment + analytics
    ========================= */
@@ -254,6 +264,43 @@ function EmailActionProcessor({ cleanId, ownerId }: { cleanId: string; ownerId?:
   return null;
 }
 
+function fmtClaimWindow(startAt: string | null, endAt: string | null) {
+  if (!startAt && !endAt) return 'Always available';
+
+  const start = startAt ? new Date(startAt) : null;
+  const end = endAt ? new Date(endAt) : null;
+
+  const startText = start && !isNaN(start.getTime()) ? start.toLocaleString() : startAt;
+  const endText = end && !isNaN(end.getTime()) ? end.toLocaleString() : endAt;
+
+  if (startText && endText) return `${startText} → ${endText}`;
+  return startText || endText || 'Always available';
+}
+
+function confirmationHeading(actionType: string) {
+  if (actionType === 'reserve') return 'Spot secured';
+  if (actionType === 'book') return 'Slot claimed';
+  if (actionType === 'enquire') return 'Availability claimed';
+  if (actionType === 'pay' || actionType === 'order') return 'Action started';
+  return 'Action confirmed';
+}
+
+function confirmationBody(actionType: string) {
+  if (actionType === 'reserve') {
+    return 'Your reserve was recorded successfully. Show this tag to staff if needed.';
+  }
+  if (actionType === 'book') {
+    return 'Your slot is claimed. Continue below to complete your booking request.';
+  }
+  if (actionType === 'enquire') {
+    return 'Your interest was recorded. A lighter enquiry follow-up flow can be added next.';
+  }
+  if (actionType === 'pay' || actionType === 'order') {
+    return 'Your action was recorded and checkout is starting.';
+  }
+  return 'Your action was recorded successfully.';
+}
+
 export default function TagClient({ tagId, scanChartData }: Props) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const cleanId = useMemo(() => {
@@ -276,11 +323,19 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [scanCount, setScanCount] = useState<number>(0);
   const [viewCount, setViewCount] = useState<number>(0);
-  const qrRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
-
   const [winnerChannel, setWinnerChannel] = useState<ShareChannel | null>(null);
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
+  const [claimConfirmation, setClaimConfirmation] = useState<ClaimConfirmationState | null>(null);
+  const [reserveName, setReserveName] = useState('');
+  const [reserveContact, setReserveContact] = useState('');
+  const [reserveContactSaving, setReserveContactSaving] = useState(false);
+  const [reserveContactSaved, setReserveContactSaved] = useState(false);
+  const [availabilityActionBusy, setAvailabilityActionBusy] = useState<string | null>(null);
+
+  const qrRef = useRef<HTMLDivElement>(null);
+  const claimConfirmationRef = useRef<HTMLDivElement>(null);
+  const inFlightClaimKeysRef = useRef<Record<string, string>>({});
+  const router = useRouter();
 
   const shareCopyVariant = useMemo(() => {
     return assignVariant(SHARE_COPY_EXP_ID, `${cleanId}:share_copy`, SHARE_COPY_VARIANTS);
@@ -432,6 +487,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       impressionSent.current = true;
     }
   }, [cleanId, variant]);
+
+  useEffect(() => {
+    if (!claimConfirmation) return;
+    claimConfirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [claimConfirmation]);
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
@@ -591,11 +651,15 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
   };
 
-  /** Stable idempotency per anon user + block + action type + qty */
   function makeAvailabilityIdempotencyKey(block: AvailabilityBlockRow, quantity: number) {
-    const anon = getAnonId();
-    const at = (block?.action_type as any) || 'unknown';
-    return `avail:${cleanId}:${block.id}:${at}:${quantity}:${anon}`;
+    const refKey = `${block.id}:${quantity}`;
+    const existing = inFlightClaimKeysRef.current[refKey];
+    if (existing) return existing;
+
+    const at = block?.action_type || 'unknown';
+    const next = `avail:${cleanId}:${block.id}:${at}:${quantity}:${crypto.randomUUID()}`;
+    inFlightClaimKeysRef.current[refKey] = next;
+    return next;
   }
 
   function isBlockLiveNow(block: Pick<AvailabilityBlockRow, 'status' | 'start_at' | 'end_at' | 'visibility'>) {
@@ -686,7 +750,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     blockId: string;
     tagId: string;
   }) {
-    const { error } = await supabase.functions.invoke('availability-notify', {
+    const { data, error } = await supabase.functions.invoke('availability-notify', {
       body: {
         type: 'CLAIM',
         record: {
@@ -698,7 +762,57 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     });
 
     if (error) {
-      console.error('availability-notify failed', error);
+      console.error('availability-notify invoke error', error);
+      return;
+    }
+
+    if (data && data.ok === false) {
+      console.error('availability-notify returned failure', data);
+      return;
+    }
+
+    console.log('availability-notify success', data);
+  }
+
+  async function saveReserveContactDetails() {
+    if (!claimConfirmation?.actionId) {
+      toast.error('Missing claim reference.');
+      return;
+    }
+
+    if (!reserveName.trim() && !reserveContact.trim()) {
+      toast.error('Add at least a name or contact.');
+      return;
+    }
+
+    setReserveContactSaving(true);
+
+    try {
+      const res = await fetch('/api/availability/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionId: claimConfirmation.actionId,
+          name: reserveName.trim(),
+          contact: reserveContact.trim(),
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        toast.error(json?.error || 'Failed to save details.');
+        setReserveContactSaving(false);
+        return;
+      }
+
+      setReserveContactSaved(true);
+      toast.success('Details added.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not save details.');
+    } finally {
+      setReserveContactSaving(false);
     }
   }
 
@@ -744,6 +858,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }
 
   async function handleAvailabilityPrimaryAction(blockAny: AvailabilityBlockRow) {
+    const busyKey = `${blockAny.id}:1`;
+    if (availabilityActionBusy === busyKey) return;
+
+    setAvailabilityActionBusy(busyKey);
+
     try {
       const block = await resolveActionableBlock(blockAny);
 
@@ -765,6 +884,20 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         blockId: block.id,
         tagId: cleanId,
       });
+
+      setClaimConfirmation({
+        actionId: claim.action_id,
+        blockId: block.id,
+        actionType: block.action_type,
+        title: block.title ?? null,
+        startAt: block.start_at ?? null,
+        endAt: block.end_at ?? null,
+        quantity: 1,
+      });
+
+      setReserveName('');
+      setReserveContact('');
+      setReserveContactSaved(false);
 
       if (block.action_type === 'book') {
         try {
@@ -804,6 +937,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message || 'Failed to start action.');
+    } finally {
+      delete inFlightClaimKeysRef.current[busyKey];
+      setAvailabilityActionBusy(null);
     }
   }
 
@@ -940,6 +1076,118 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             refreshKey={availabilityRefreshKey}
           />
         </section>
+
+        {claimConfirmation && (
+          <section
+            ref={claimConfirmationRef}
+            className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium text-green-800">Confirmation</div>
+                <h3 className="mt-1 text-xl font-semibold text-green-900">
+                  {confirmationHeading(claimConfirmation.actionType)}
+                </h3>
+                <p className="mt-2 text-sm text-green-900/80">
+                  {confirmationBody(claimConfirmation.actionType)}
+                </p>
+
+                <div className="mt-4 space-y-1 text-sm text-green-900/80">
+                  {claimConfirmation.title && (
+                    <div>
+                      <span className="font-medium">Availability:</span> {claimConfirmation.title}
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-medium">Time:</span>{' '}
+                    {fmtClaimWindow(claimConfirmation.startAt, claimConfirmation.endAt)}
+                  </div>
+                  <div>
+                    <span className="font-medium">Quantity:</span> {claimConfirmation.quantity}
+                  </div>
+                  <div>
+                    <span className="font-medium">Reference:</span> {claimConfirmation.actionId}
+                  </div>
+                </div>
+
+                {claimConfirmation.actionType === 'book' && (
+                  <div className="mt-4 text-sm font-medium text-green-900">
+                    Continue below to complete your booking request.
+                  </div>
+                )}
+
+                {claimConfirmation.actionType === 'reserve' && (
+                  <div className="mt-4 text-sm font-medium text-green-900">
+                    Keep this page open or show it to staff if needed.
+                  </div>
+                )}
+
+                {claimConfirmation.actionType === 'reserve' && (
+                  <div className="mt-4 rounded-xl border border-green-200 bg-white p-4">
+                    <div className="text-sm font-medium text-green-900">
+                      Add your details for easier follow-up
+                    </div>
+                    <p className="mt-1 text-xs text-green-900/70">
+                      Optional. This helps the owner contact you if needed.
+                    </p>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <input
+                        value={reserveName}
+                        onChange={(e) => setReserveName(e.target.value)}
+                        placeholder="Your name (optional)"
+                        className="w-full rounded-xl border border-green-200 bg-white p-2 text-sm"
+                        disabled={reserveContactSaving || reserveContactSaved}
+                      />
+                      <input
+                        value={reserveContact}
+                        onChange={(e) => setReserveContact(e.target.value)}
+                        placeholder="Phone or contact (optional)"
+                        className="w-full rounded-xl border border-green-200 bg-white p-2 text-sm"
+                        disabled={reserveContactSaving || reserveContactSaved}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={saveReserveContactDetails}
+                        disabled={reserveContactSaving || reserveContactSaved}
+                        className="h-10 px-4 rounded-xl bg-green-900 text-white hover:bg-green-800 transition text-sm disabled:opacity-50"
+                      >
+                        {reserveContactSaved
+                          ? 'Details saved'
+                          : reserveContactSaving
+                            ? 'Saving...'
+                            : 'Add details'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {claimConfirmation.actionType === 'book' && (
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="h-10 px-4 rounded-xl bg-green-900 text-white hover:bg-green-800 transition text-sm"
+                  >
+                    Continue booking
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setClaimConfirmation(null)}
+                  className="h-10 px-4 rounded-xl border border-green-300 bg-white text-sm text-green-900 hover:bg-green-100 transition"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="mt-10 grid gap-6 md:grid-cols-[320px_1fr]">
           <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
