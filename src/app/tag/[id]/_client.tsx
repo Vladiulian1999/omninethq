@@ -167,6 +167,12 @@ function claimConfirmationStorageKey(tagId: string) {
   return `omni_claim_confirmation_${tagId}`;
 }
 
+function claimConfirmationTtlMs(actionType: string) {
+  const type = String(actionType || '').trim().toLowerCase();
+  if (type === 'pay' || type === 'order') return 60 * 60 * 1000;
+  return 6 * 60 * 60 * 1000;
+}
+
 function saveClaimConfirmation(tagId: string, value: ClaimConfirmationState | null) {
   try {
     const key = claimConfirmationStorageKey(tagId);
@@ -175,11 +181,15 @@ function saveClaimConfirmation(tagId: string, value: ClaimConfirmationState | nu
       return;
     }
 
+    const savedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + claimConfirmationTtlMs(value.actionType)).toISOString();
+
     sessionStorage.setItem(
       key,
       JSON.stringify({
         ...value,
-        savedAt: new Date().toISOString(),
+        savedAt,
+        expiresAt,
       })
     );
   } catch {}
@@ -187,17 +197,33 @@ function saveClaimConfirmation(tagId: string, value: ClaimConfirmationState | nu
 
 function loadClaimConfirmation(tagId: string): ClaimConfirmationState | null {
   try {
-    const raw = sessionStorage.getItem(claimConfirmationStorageKey(tagId));
+    const key = claimConfirmationStorageKey(tagId);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
 
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed || typeof parsed !== 'object') {
+      sessionStorage.removeItem(key);
+      return null;
+    }
 
     const actionId = String(parsed.actionId ?? '').trim();
     const blockId = String(parsed.blockId ?? '').trim();
     const actionType = String(parsed.actionType ?? '').trim();
 
-    if (!actionId || !blockId || !actionType) return null;
+    if (!actionId || !blockId || !actionType) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    const expiresAtRaw = String(parsed.expiresAt ?? '').trim();
+    if (expiresAtRaw) {
+      const expiresAtMs = new Date(expiresAtRaw).getTime();
+      if (Number.isFinite(expiresAtMs) && Date.now() > expiresAtMs) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+    }
 
     return {
       actionId,
@@ -209,6 +235,9 @@ function loadClaimConfirmation(tagId: string): ClaimConfirmationState | null {
       quantity: Number(parsed.quantity ?? 1) || 1,
     };
   } catch {
+    try {
+      sessionStorage.removeItem(claimConfirmationStorageKey(tagId));
+    } catch {}
     return null;
   }
 }
@@ -545,9 +574,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   useEffect(() => {
     const restored = loadClaimConfirmation(cleanId);
-    if (restored) {
-      setClaimConfirmation(restored);
-    }
+    setClaimConfirmation(restored);
   }, [cleanId]);
 
   useEffect(() => {
@@ -1171,6 +1198,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                   </div>
                   <div>
                     <span className="font-medium">Reference:</span> {claimConfirmation.actionId}
+                  </div>
+                  <div className="text-xs text-green-900/60 mt-2">
+                    This confirmation is stored on this device for a limited time.
                   </div>
                 </div>
 
