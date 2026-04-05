@@ -163,6 +163,56 @@ ${url}`;
   return `Tag link: ${title}`;
 }
 
+function claimConfirmationStorageKey(tagId: string) {
+  return `omni_claim_confirmation_${tagId}`;
+}
+
+function saveClaimConfirmation(tagId: string, value: ClaimConfirmationState | null) {
+  try {
+    const key = claimConfirmationStorageKey(tagId);
+    if (!value) {
+      sessionStorage.removeItem(key);
+      return;
+    }
+
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        ...value,
+        savedAt: new Date().toISOString(),
+      })
+    );
+  } catch {}
+}
+
+function loadClaimConfirmation(tagId: string): ClaimConfirmationState | null {
+  try {
+    const raw = sessionStorage.getItem(claimConfirmationStorageKey(tagId));
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const actionId = String(parsed.actionId ?? '').trim();
+    const blockId = String(parsed.blockId ?? '').trim();
+    const actionType = String(parsed.actionType ?? '').trim();
+
+    if (!actionId || !blockId || !actionType) return null;
+
+    return {
+      actionId,
+      blockId,
+      actionType,
+      title: parsed.title ?? null,
+      startAt: parsed.startAt ?? null,
+      endAt: parsed.endAt ?? null,
+      quantity: Number(parsed.quantity ?? 1) || 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** A2HS prompt nudge */
 function A2HSNudge() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -492,6 +542,17 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     if (!claimConfirmation) return;
     claimConfirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [claimConfirmation]);
+
+  useEffect(() => {
+    const restored = loadClaimConfirmation(cleanId);
+    if (restored) {
+      setClaimConfirmation(restored);
+    }
+  }, [cleanId]);
+
+  useEffect(() => {
+    saveClaimConfirmation(cleanId, claimConfirmation);
+  }, [cleanId, claimConfirmation]);
 
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
@@ -885,7 +946,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         tagId: cleanId,
       });
 
-      setClaimConfirmation({
+      const nextConfirmation = {
         actionId: claim.action_id,
         blockId: block.id,
         actionType: block.action_type,
@@ -893,7 +954,10 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         startAt: block.start_at ?? null,
         endAt: block.end_at ?? null,
         quantity: 1,
-      });
+      };
+
+      setClaimConfirmation(nextConfirmation);
+      saveClaimConfirmation(cleanId, nextConfirmation);
 
       setReserveName('');
       setReserveContact('');
@@ -1179,7 +1243,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
                 <button
                   type="button"
-                  onClick={() => setClaimConfirmation(null)}
+                  onClick={() => {
+                    setClaimConfirmation(null);
+                    saveClaimConfirmation(cleanId, null);
+                    setReserveName('');
+                    setReserveContact('');
+                    setReserveContactSaved(false);
+                  }}
                   className="h-10 px-4 rounded-xl border border-green-300 bg-white text-sm text-green-900 hover:bg-green-100 transition"
                 >
                   Dismiss
