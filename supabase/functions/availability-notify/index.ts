@@ -78,6 +78,16 @@ function buildTags(ownerId?: string, tagId?: string, blockId?: string, actionId?
   return tags;
 }
 
+function parseJsonMaybe(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function sendEmail({
   apiKey,
   to,
@@ -120,6 +130,9 @@ async function sendEmail({
   });
 
   const textBody = await res.text();
+  const parsedBody = parseJsonMaybe(textBody);
+  const providerMessageId = s(parsedBody?.id);
+
   console.log('Resend status:', res.status);
   console.log('Resend body:', textBody);
 
@@ -127,6 +140,8 @@ async function sendEmail({
     ok: res.ok,
     status: res.status,
     body: textBody,
+    parsedBody,
+    providerMessageId: providerMessageId || null,
   };
 }
 
@@ -418,6 +433,7 @@ serve(async (req: Request) => {
           stage: 'resend_send',
           resend_status: resend.status,
           resend_body: resend.body,
+          provider_message_id: resend.providerMessageId,
           ownerEmail,
           ownerId,
           blockId,
@@ -431,6 +447,7 @@ serve(async (req: Request) => {
           error: 'RESEND_FAILED',
           resend_status: resend.status,
           resend_body: resend.body,
+          provider_message_id: resend.providerMessageId,
           ownerEmail,
           actionId,
           blockId,
@@ -448,6 +465,7 @@ serve(async (req: Request) => {
         stage: 'resend_send',
         resend_status: resend.status,
         resend_body: resend.body,
+        provider_message_id: resend.providerMessageId,
         ownerEmail,
         ownerId,
         blockId,
@@ -462,6 +480,7 @@ serve(async (req: Request) => {
         actionId,
         blockId,
         tagId,
+        provider_message_id: resend.providerMessageId,
       },
       200
     );
