@@ -313,6 +313,28 @@ function providerMessageId(log: NotificationLogRow | null | undefined) {
   }
 }
 
+function claimWorkflowState(claim: AvailabilityClaim): 'open' | 'contacted' | 'closed' {
+  const closed = ownerFlag(claim, 'owner_closed');
+  if (closed) return 'closed';
+
+  const contacted = ownerFlag(claim, 'owner_contacted');
+  if (contacted) return 'contacted';
+
+  return 'open';
+}
+
+function workflowLabel(state: 'open' | 'contacted' | 'closed') {
+  if (state === 'open') return 'OPEN';
+  if (state === 'contacted') return 'CONTACTED';
+  return 'CLOSED';
+}
+
+function workflowBadgeClass(state: 'open' | 'contacted' | 'closed') {
+  if (state === 'open') return 'bg-orange-100 text-orange-700';
+  if (state === 'contacted') return 'bg-blue-100 text-blue-700';
+  return 'bg-gray-200 text-gray-700';
+}
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -985,7 +1007,7 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Recent claims visibility</h2>
             <p className="text-sm opacity-80 mt-1">
-              Each block now shows its latest claims with real owner actions and notification status.
+              Each block now shows claims grouped into open, contacted, and closed so owners can stop missing follow-up.
             </p>
           </div>
           <div className="text-xs opacity-70">
@@ -1309,6 +1331,194 @@ function Section(props: {
   );
 }
 
+function ClaimGroup(props: {
+  title: string;
+  subtitle: string;
+  claims: AvailabilityClaim[];
+  notificationsByActionId: Record<string, NotificationLogRow>;
+  claimSavingId: string | null;
+  retryingNotificationLogId: string | null;
+  onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
+  onRetryNotification: (notificationLogId: string) => Promise<void>;
+}) {
+  const {
+    title,
+    subtitle,
+    claims,
+    notificationsByActionId,
+    claimSavingId,
+    retryingNotificationLogId,
+    onConfirmClaim,
+    onMarkContacted,
+    onMarkClosed,
+    onRetryNotification,
+  } = props;
+
+  return (
+    <div className="rounded-xl border bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">{title}</div>
+          <div className="text-xs opacity-70">{subtitle}</div>
+        </div>
+        <div className="text-xs px-2 py-1 rounded-full border opacity-80">
+          {claims.length}
+        </div>
+      </div>
+
+      {claims.length === 0 ? (
+        <div className="mt-3 text-sm opacity-60">None.</div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {claims.map((claim, index) => {
+            const id = claimPrimaryId(claim);
+            const rowId = String(claim.id ?? '').trim();
+            const created = fmtDT(claim.created_at ?? null);
+            const qty = claimQuantity(claim);
+            const status = claimStatus(claim);
+            const channel = String(claim.channel ?? '').trim();
+            const referral = String(claim.referral_code ?? '').trim();
+            const contact = String(claim.customer_contact ?? '').trim();
+            const savingThisClaim = claimSavingId === rowId;
+            const contacted = ownerFlag(claim, 'owner_contacted');
+            const closed = ownerFlag(claim, 'owner_closed');
+            const confirmed = status === 'confirmed';
+            const workflow = claimWorkflowState(claim);
+            const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
+            const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
+            const notifyCreatedAt = fmtDT(notifyLog?.created_at ?? null);
+            const notifyMessageId = providerMessageId(notifyLog);
+            const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
+
+            return (
+              <div key={`${rowId || id || index}`} className="rounded-lg border bg-black/[0.02] p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{claimDisplayName(claim)}</span>
+                  <span className="text-xs px-2 py-1 rounded-full border opacity-80">{status}</span>
+                  <span className="text-xs px-2 py-1 rounded-full border opacity-80">qty {qty}</span>
+                  <span className={`text-xs px-2 py-1 rounded-full ${workflowBadgeClass(workflow)}`}>
+                    {workflowLabel(workflow)}
+                  </span>
+                  {channel && (
+                    <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
+                  )}
+                  {confirmed && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                      CONFIRMED
+                    </span>
+                  )}
+                  {contacted && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                      CONTACTED
+                    </span>
+                  )}
+                  {closed && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                      CLOSED
+                    </span>
+                  )}
+                  {notifyLog && (
+                    <span className={`text-xs px-2 py-1 rounded-full ${notificationBadgeClass(notifyStatus)}`}>
+                      {notificationStatusLabel(notifyStatus)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 text-xs opacity-70 space-y-1">
+                  {created && <div>When: {created}</div>}
+                  {id && <div>Action: {shorten(id, 12)}</div>}
+                  {referral && <div>Referral: {referral}</div>}
+                  {notifyLog && notifyCreatedAt && <div>Notification: {notifyCreatedAt}</div>}
+                  {notifyLog && notifyMessageId && <div>Provider message id: {notifyMessageId}</div>}
+                  {notifyLog && notifyStatus === 'failed' && (
+                    <div className="text-red-600">Last notify attempt failed. Retry below.</div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!confirmed && (
+                    <button
+                      type="button"
+                      onClick={() => onConfirmClaim(claim)}
+                      disabled={savingThisClaim}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                    >
+                      Confirm
+                    </button>
+                  )}
+
+                  {!contacted && !closed && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkContacted(claim)}
+                      disabled={savingThisClaim}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                    >
+                      Mark contacted
+                    </button>
+                  )}
+
+                  {!closed && (
+                    <button
+                      type="button"
+                      onClick={() => onMarkClosed(claim)}
+                      disabled={savingThisClaim}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                    >
+                      Close
+                    </button>
+                  )}
+
+                  {notifyLog && notifyStatus === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={() => onRetryNotification(notifyLog.id)}
+                      disabled={retryingThisNotification}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                    >
+                      {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
+                    </button>
+                  )}
+
+                  {contact && (
+                    <button
+                      type="button"
+                      onClick={() => copyText(contact)}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                    >
+                      Copy contact
+                    </button>
+                  )}
+
+                  {contact && isPhoneLike(contact) && (
+                    <a
+                      href={phoneHref(contact)}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                    >
+                      Call
+                    </a>
+                  )}
+
+                  {contact && isPhoneLike(contact) && (
+                    <a
+                      href={smsHref(contact)}
+                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                    >
+                      SMS
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BlockCard(props: {
   b: AvailabilityBlock;
   claims: AvailabilityClaim[];
@@ -1363,7 +1573,9 @@ function BlockCard(props: {
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
-  const recentClaims = claims.slice(0, 6);
+  const openClaims = claims.filter((claim) => claimWorkflowState(claim) === 'open');
+  const contactedClaims = claims.filter((claim) => claimWorkflowState(claim) === 'contacted');
+  const closedClaims = claims.filter((claim) => claimWorkflowState(claim) === 'closed');
 
   return (
     <div className="rounded-2xl border p-4">
@@ -1407,172 +1619,66 @@ function BlockCard(props: {
             </div>
 
             <div className="mt-4 rounded-xl border bg-black/[0.02] p-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium">Recent claims</div>
+                  <div className="text-sm font-medium">Claim workflow</div>
                   <div className="text-xs opacity-70">
-                    {claims.length === 0 ? 'No claims yet.' : `${claims.length} total claim${claims.length === 1 ? '' : 's'}`}
+                    Claims are grouped so unattended leads stop getting buried.
                   </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-700">
+                    Open {openClaims.length}
+                  </span>
+                  <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                    Contacted {contactedClaims.length}
+                  </span>
+                  <span className="px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                    Closed {closedClaims.length}
+                  </span>
                 </div>
               </div>
 
-              {recentClaims.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {recentClaims.map((claim, index) => {
-                    const id = claimPrimaryId(claim);
-                    const rowId = String(claim.id ?? '').trim();
-                    const created = fmtDT(claim.created_at ?? null);
-                    const qty = claimQuantity(claim);
-                    const status = claimStatus(claim);
-                    const channel = String(claim.channel ?? '').trim();
-                    const referral = String(claim.referral_code ?? '').trim();
-                    const contact = String(claim.customer_contact ?? '').trim();
-                    const savingThisClaim = claimSavingId === rowId;
-                    const contacted = ownerFlag(claim, 'owner_contacted');
-                    const closed = ownerFlag(claim, 'owner_closed');
-                    const confirmed = status === 'confirmed';
-                    const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
-                    const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
-                    const notifyCreatedAt = fmtDT(notifyLog?.created_at ?? null);
-                    const notifyMessageId = providerMessageId(notifyLog);
-                    const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
+              <div className="mt-4 space-y-3">
+                <ClaimGroup
+                  title="Open claims"
+                  subtitle="These still need owner action."
+                  claims={openClaims}
+                  notificationsByActionId={notificationsByActionId}
+                  claimSavingId={claimSavingId}
+                  retryingNotificationLogId={retryingNotificationLogId}
+                  onConfirmClaim={onConfirmClaim}
+                  onMarkContacted={onMarkContacted}
+                  onMarkClosed={onMarkClosed}
+                  onRetryNotification={onRetryNotification}
+                />
 
-                    return (
-                      <div key={`${b.id}-${id || index}`} className="rounded-lg border bg-white p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{claimDisplayName(claim)}</span>
-                          <span className="text-xs px-2 py-1 rounded-full border opacity-80">{status}</span>
-                          <span className="text-xs px-2 py-1 rounded-full border opacity-80">qty {qty}</span>
-                          {channel && (
-                            <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
-                          )}
-                          {confirmed && (
-                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                              CONFIRMED
-                            </span>
-                          )}
-                          {contacted && (
-                            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                              CONTACTED
-                            </span>
-                          )}
-                          {closed && (
-                            <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
-                              CLOSED
-                            </span>
-                          )}
-                          {notifyLog && (
-                            <span className={`text-xs px-2 py-1 rounded-full ${notificationBadgeClass(notifyStatus)}`}>
-                              {notificationStatusLabel(notifyStatus)}
-                            </span>
-                          )}
-                        </div>
+                <ClaimGroup
+                  title="Contacted claims"
+                  subtitle="Owner has reached out, but these are not closed yet."
+                  claims={contactedClaims}
+                  notificationsByActionId={notificationsByActionId}
+                  claimSavingId={claimSavingId}
+                  retryingNotificationLogId={retryingNotificationLogId}
+                  onConfirmClaim={onConfirmClaim}
+                  onMarkContacted={onMarkContacted}
+                  onMarkClosed={onMarkClosed}
+                  onRetryNotification={onRetryNotification}
+                />
 
-                        <div className="mt-2 text-xs opacity-70 space-y-1">
-                          {created && <div>When: {created}</div>}
-                          {id && <div>Action: {shorten(id, 12)}</div>}
-                          {referral && <div>Referral: {referral}</div>}
-                          {notifyLog && notifyCreatedAt && (
-                            <div>Notification: {notifyCreatedAt}</div>
-                          )}
-                          {notifyLog && notifyMessageId && (
-                            <div>Provider message id: {notifyMessageId}</div>
-                          )}
-                          {notifyLog && notifyStatus === 'failed' && (
-                            <div className="text-red-600">
-                              Last notify attempt failed. Retry below.
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {!confirmed && (
-                            <button
-                              type="button"
-                              onClick={() => onConfirmClaim(claim)}
-                              disabled={savingThisClaim}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                            >
-                              Confirm
-                            </button>
-                          )}
-
-                          {!contacted && (
-                            <button
-                              type="button"
-                              onClick={() => onMarkContacted(claim)}
-                              disabled={savingThisClaim}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                            >
-                              Mark contacted
-                            </button>
-                          )}
-
-                          {!closed && (
-                            <button
-                              type="button"
-                              onClick={() => onMarkClosed(claim)}
-                              disabled={savingThisClaim}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                            >
-                              Close
-                            </button>
-                          )}
-
-                          {notifyLog && notifyStatus === 'failed' && (
-                            <button
-                              type="button"
-                              onClick={() => onRetryNotification(notifyLog.id)}
-                              disabled={retryingThisNotification}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                            >
-                              {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
-                            </button>
-                          )}
-
-                          {contact && (
-                            <button
-                              type="button"
-                              onClick={() => copyText(contact)}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80"
-                            >
-                              Copy contact
-                            </button>
-                          )}
-
-                          {contact && isPhoneLike(contact) && (
-                            <a
-                              href={phoneHref(contact)}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80"
-                            >
-                              Call
-                            </a>
-                          )}
-
-                          {contact && isPhoneLike(contact) && (
-                            <a
-                              href={smsHref(contact)}
-                              className="px-3 py-2 rounded-xl border hover:opacity-80"
-                            >
-                              SMS
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {claims.length > recentClaims.length && (
-                    <div className="text-xs opacity-70">
-                      Showing latest {recentClaims.length} of {claims.length} claims.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="mt-3 text-sm opacity-70">
-                  Nothing has been claimed on this block yet.
-                </div>
-              )}
+                <ClaimGroup
+                  title="Closed claims"
+                  subtitle="Operationally complete."
+                  claims={closedClaims}
+                  notificationsByActionId={notificationsByActionId}
+                  claimSavingId={claimSavingId}
+                  retryingNotificationLogId={retryingNotificationLogId}
+                  onConfirmClaim={onConfirmClaim}
+                  onMarkContacted={onMarkContacted}
+                  onMarkClosed={onMarkClosed}
+                  onRetryNotification={onRetryNotification}
+                />
+              </div>
             </div>
           </div>
 
