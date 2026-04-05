@@ -72,6 +72,9 @@ type BlockFormState = {
   visibility: Visibility;
 };
 
+type ClaimWorkflowState = 'open' | 'contacted' | 'closed';
+type ClaimAgeState = 'new' | 'aging' | 'stale';
+
 function fmtMoney(pence: number | null, currency: string) {
   if (pence == null) return null;
   const amount = pence / 100;
@@ -313,7 +316,7 @@ function providerMessageId(log: NotificationLogRow | null | undefined) {
   }
 }
 
-function claimWorkflowState(claim: AvailabilityClaim): 'open' | 'contacted' | 'closed' {
+function claimWorkflowState(claim: AvailabilityClaim): ClaimWorkflowState {
   const closed = ownerFlag(claim, 'owner_closed');
   if (closed) return 'closed';
 
@@ -323,16 +326,63 @@ function claimWorkflowState(claim: AvailabilityClaim): 'open' | 'contacted' | 'c
   return 'open';
 }
 
-function workflowLabel(state: 'open' | 'contacted' | 'closed') {
+function workflowLabel(state: ClaimWorkflowState) {
   if (state === 'open') return 'OPEN';
   if (state === 'contacted') return 'CONTACTED';
   return 'CLOSED';
 }
 
-function workflowBadgeClass(state: 'open' | 'contacted' | 'closed') {
+function workflowBadgeClass(state: ClaimWorkflowState) {
   if (state === 'open') return 'bg-orange-100 text-orange-700';
   if (state === 'contacted') return 'bg-blue-100 text-blue-700';
   return 'bg-gray-200 text-gray-700';
+}
+
+function claimAgeState(claim: AvailabilityClaim): ClaimAgeState {
+  const createdAt = String(claim.created_at ?? '').trim();
+  if (!createdAt) return 'new';
+
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return 'new';
+
+  const ageMs = Date.now() - createdMs;
+  if (ageMs >= 60 * 60 * 1000) return 'stale';
+  if (ageMs >= 15 * 60 * 1000) return 'aging';
+  return 'new';
+}
+
+function claimAgeLabel(state: ClaimAgeState) {
+  if (state === 'stale') return 'STALE';
+  if (state === 'aging') return 'AGING';
+  return 'NEW';
+}
+
+function claimAgeBadgeClass(state: ClaimAgeState) {
+  if (state === 'stale') return 'bg-red-100 text-red-700';
+  if (state === 'aging') return 'bg-yellow-100 text-yellow-700';
+  return 'bg-emerald-100 text-emerald-700';
+}
+
+function claimAgeHelpText(state: ClaimAgeState) {
+  if (state === 'stale') return 'Open too long. This is being neglected.';
+  if (state === 'aging') return 'Needs attention soon.';
+  return 'Fresh claim.';
+}
+
+function sortClaimsForWorkflow(claims: AvailabilityClaim[], state: ClaimWorkflowState) {
+  return [...claims].sort((a, b) => {
+    const aAge = claimAgeState(a);
+    const bAge = claimAgeState(b);
+
+    if (state === 'open') {
+      const rank = { stale: 0, aging: 1, new: 2 } as const;
+      if (rank[aAge] !== rank[bAge]) return rank[aAge] - rank[bAge];
+    }
+
+    const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return bCreated - aCreated;
+  });
 }
 
 async function copyText(text: string) {
@@ -1007,11 +1057,11 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Recent claims visibility</h2>
             <p className="text-sm opacity-80 mt-1">
-              Each block now shows claims grouped into open, contacted, and closed so owners can stop missing follow-up.
+              Open claims are now flagged as new, aging, or stale so ignored leads stop blending into the pile.
             </p>
           </div>
           <div className="text-xs opacity-70">
-            {claimsLoading ? 'Refreshing claims…' : 'Claims and notification status loaded'}
+            {claimsLoading ? 'Refreshing claims…' : 'Claims, age, and notification status loaded'}
           </div>
         </div>
       </div>
@@ -1342,6 +1392,7 @@ function ClaimGroup(props: {
   onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
   onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
   onRetryNotification: (notificationLogId: string) => Promise<void>;
+  workflowState: ClaimWorkflowState;
 }) {
   const {
     title,
@@ -1354,6 +1405,7 @@ function ClaimGroup(props: {
     onMarkContacted,
     onMarkClosed,
     onRetryNotification,
+    workflowState,
   } = props;
 
   return (
@@ -1386,6 +1438,7 @@ function ClaimGroup(props: {
             const closed = ownerFlag(claim, 'owner_closed');
             const confirmed = status === 'confirmed';
             const workflow = claimWorkflowState(claim);
+            const ageState = claimAgeState(claim);
             const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
             const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
             const notifyCreatedAt = fmtDT(notifyLog?.created_at ?? null);
@@ -1401,6 +1454,11 @@ function ClaimGroup(props: {
                   <span className={`text-xs px-2 py-1 rounded-full ${workflowBadgeClass(workflow)}`}>
                     {workflowLabel(workflow)}
                   </span>
+                  {workflowState === 'open' && (
+                    <span className={`text-xs px-2 py-1 rounded-full ${claimAgeBadgeClass(ageState)}`}>
+                      {claimAgeLabel(ageState)}
+                    </span>
+                  )}
                   {channel && (
                     <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
                   )}
@@ -1430,6 +1488,11 @@ function ClaimGroup(props: {
                   {created && <div>When: {created}</div>}
                   {id && <div>Action: {shorten(id, 12)}</div>}
                   {referral && <div>Referral: {referral}</div>}
+                  {workflowState === 'open' && (
+                    <div className={ageState === 'stale' ? 'text-red-600' : ageState === 'aging' ? 'text-yellow-700' : ''}>
+                      Age: {claimAgeHelpText(ageState)}
+                    </div>
+                  )}
                   {notifyLog && notifyCreatedAt && <div>Notification: {notifyCreatedAt}</div>}
                   {notifyLog && notifyMessageId && <div>Provider message id: {notifyMessageId}</div>}
                   {notifyLog && notifyStatus === 'failed' && (
@@ -1573,9 +1636,21 @@ function BlockCard(props: {
   const isSoldOut =
     b.status === 'sold_out' || (b.capacity_total != null && (b.capacity_remaining ?? 0) === 0);
 
-  const openClaims = claims.filter((claim) => claimWorkflowState(claim) === 'open');
-  const contactedClaims = claims.filter((claim) => claimWorkflowState(claim) === 'contacted');
-  const closedClaims = claims.filter((claim) => claimWorkflowState(claim) === 'closed');
+  const openClaims = sortClaimsForWorkflow(
+    claims.filter((claim) => claimWorkflowState(claim) === 'open'),
+    'open'
+  );
+  const contactedClaims = sortClaimsForWorkflow(
+    claims.filter((claim) => claimWorkflowState(claim) === 'contacted'),
+    'contacted'
+  );
+  const closedClaims = sortClaimsForWorkflow(
+    claims.filter((claim) => claimWorkflowState(claim) === 'closed'),
+    'closed'
+  );
+
+  const staleOpenCount = openClaims.filter((claim) => claimAgeState(claim) === 'stale').length;
+  const agingOpenCount = openClaims.filter((claim) => claimAgeState(claim) === 'aging').length;
 
   return (
     <div className="rounded-2xl border p-4">
@@ -1623,7 +1698,7 @@ function BlockCard(props: {
                 <div>
                   <div className="text-sm font-medium">Claim workflow</div>
                   <div className="text-xs opacity-70">
-                    Claims are grouped so unattended leads stop getting buried.
+                    Open claims are prioritized by age so neglected leads rise to the top.
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -1636,13 +1711,23 @@ function BlockCard(props: {
                   <span className="px-2 py-1 rounded-full bg-gray-200 text-gray-700">
                     Closed {closedClaims.length}
                   </span>
+                  {agingOpenCount > 0 && (
+                    <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                      Aging {agingOpenCount}
+                    </span>
+                  )}
+                  {staleOpenCount > 0 && (
+                    <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+                      Stale {staleOpenCount}
+                    </span>
+                  )}
                 </div>
               </div>
 
               <div className="mt-4 space-y-3">
                 <ClaimGroup
                   title="Open claims"
-                  subtitle="These still need owner action."
+                  subtitle="These still need owner action. Oldest risk rises first."
                   claims={openClaims}
                   notificationsByActionId={notificationsByActionId}
                   claimSavingId={claimSavingId}
@@ -1651,6 +1736,7 @@ function BlockCard(props: {
                   onMarkContacted={onMarkContacted}
                   onMarkClosed={onMarkClosed}
                   onRetryNotification={onRetryNotification}
+                  workflowState="open"
                 />
 
                 <ClaimGroup
@@ -1664,6 +1750,7 @@ function BlockCard(props: {
                   onMarkContacted={onMarkContacted}
                   onMarkClosed={onMarkClosed}
                   onRetryNotification={onRetryNotification}
+                  workflowState="contacted"
                 />
 
                 <ClaimGroup
@@ -1677,6 +1764,7 @@ function BlockCard(props: {
                   onMarkContacted={onMarkContacted}
                   onMarkClosed={onMarkClosed}
                   onRetryNotification={onRetryNotification}
+                  workflowState="closed"
                 />
               </div>
             </div>
