@@ -336,6 +336,7 @@ export default function AvailabilityClient() {
   const [claimsByBlock, setClaimsByBlock] = useState<Record<string, AvailabilityClaim[]>>({});
   const [notificationsByActionId, setNotificationsByActionId] = useState<Record<string, NotificationLogRow>>({});
   const [claimSavingId, setClaimSavingId] = useState<string | null>(null);
+  const [retryingNotificationLogId, setRetryingNotificationLogId] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -841,6 +842,39 @@ export default function AvailabilityClient() {
     await loadAll();
   }
 
+  async function retryNotification(notificationLogId: string) {
+    if (!notificationLogId) {
+      toast.error('Missing notification log id.');
+      return;
+    }
+
+    setRetryingNotificationLogId(notificationLogId);
+
+    try {
+      const res = await fetch('/api/availability/retry-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationLogId }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json?.ok) {
+        toast.error(json?.error || 'Retry failed.');
+        setRetryingNotificationLogId(null);
+        return;
+      }
+
+      toast.success('Notification retried.');
+      await loadAll();
+    } catch (e) {
+      console.error(e);
+      toast.error('Retry failed.');
+    } finally {
+      setRetryingNotificationLogId(null);
+    }
+  }
+
   const grouped = useMemo(() => {
     const upcoming: AvailabilityBlock[] = [];
     const always: AvailabilityBlock[] = [];
@@ -902,7 +936,7 @@ export default function AvailabilityClient() {
           <button
             onClick={() => loadAll()}
             className="px-3 py-2 rounded-xl border hover:opacity-80"
-            disabled={loading || saving || claimsLoading || !!claimSavingId}
+            disabled={loading || saving || claimsLoading || !!claimSavingId || !!retryingNotificationLogId}
           >
             Refresh
           </button>
@@ -968,6 +1002,7 @@ export default function AvailabilityClient() {
           claimsByBlock={claimsByBlock}
           notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
+          retryingNotificationLogId={retryingNotificationLogId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -990,6 +1025,7 @@ export default function AvailabilityClient() {
               owner_closed_at: new Date().toISOString(),
             })
           }
+          onRetryNotification={retryNotification}
           saving={saving}
         />
 
@@ -1000,6 +1036,7 @@ export default function AvailabilityClient() {
           claimsByBlock={claimsByBlock}
           notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
+          retryingNotificationLogId={retryingNotificationLogId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -1022,6 +1059,7 @@ export default function AvailabilityClient() {
               owner_closed_at: new Date().toISOString(),
             })
           }
+          onRetryNotification={retryNotification}
           saving={saving}
         />
 
@@ -1032,6 +1070,7 @@ export default function AvailabilityClient() {
           claimsByBlock={claimsByBlock}
           notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
+          retryingNotificationLogId={retryingNotificationLogId}
           editingId={editingId}
           editForm={editForm}
           setEditForm={setEditForm}
@@ -1054,6 +1093,7 @@ export default function AvailabilityClient() {
               owner_closed_at: new Date().toISOString(),
             })
           }
+          onRetryNotification={retryNotification}
           saving={saving}
           muted
         />
@@ -1211,6 +1251,7 @@ function Section(props: {
   claimsByBlock: Record<string, AvailabilityClaim[]>;
   notificationsByActionId: Record<string, NotificationLogRow>;
   claimSavingId: string | null;
+  retryingNotificationLogId: string | null;
   editingId: string | null;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -1223,6 +1264,7 @@ function Section(props: {
   onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
   onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
   onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
+  onRetryNotification: (notificationLogId: string) => Promise<void>;
   saving: boolean;
   muted?: boolean;
 }) {
@@ -1244,6 +1286,7 @@ function Section(props: {
               claims={props.claimsByBlock[b.id] ?? []}
               notificationsByActionId={props.notificationsByActionId}
               claimSavingId={props.claimSavingId}
+              retryingNotificationLogId={props.retryingNotificationLogId}
               editing={props.editingId === b.id}
               editForm={props.editingId === b.id ? props.editForm : null}
               setEditForm={props.setEditForm}
@@ -1256,6 +1299,7 @@ function Section(props: {
               onConfirmClaim={props.onConfirmClaim}
               onMarkContacted={props.onMarkContacted}
               onMarkClosed={props.onMarkClosed}
+              onRetryNotification={props.onRetryNotification}
               saving={props.saving}
             />
           ))}
@@ -1270,6 +1314,7 @@ function BlockCard(props: {
   claims: AvailabilityClaim[];
   notificationsByActionId: Record<string, NotificationLogRow>;
   claimSavingId: string | null;
+  retryingNotificationLogId: string | null;
   editing: boolean;
   editForm: BlockFormState | null;
   setEditForm: React.Dispatch<React.SetStateAction<BlockFormState | null>>;
@@ -1282,6 +1327,7 @@ function BlockCard(props: {
   onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
   onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
   onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
+  onRetryNotification: (notificationLogId: string) => Promise<void>;
   saving: boolean;
 }) {
   const {
@@ -1289,6 +1335,7 @@ function BlockCard(props: {
     claims,
     notificationsByActionId,
     claimSavingId,
+    retryingNotificationLogId,
     editing,
     editForm,
     setEditForm,
@@ -1301,6 +1348,7 @@ function BlockCard(props: {
     onConfirmClaim,
     onMarkContacted,
     onMarkClosed,
+    onRetryNotification,
     saving,
   } = props;
 
@@ -1387,6 +1435,7 @@ function BlockCard(props: {
                     const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
                     const notifyCreatedAt = fmtDT(notifyLog?.created_at ?? null);
                     const notifyMessageId = providerMessageId(notifyLog);
+                    const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
 
                     return (
                       <div key={`${b.id}-${id || index}`} className="rounded-lg border bg-white p-3 text-sm">
@@ -1431,7 +1480,7 @@ function BlockCard(props: {
                           )}
                           {notifyLog && notifyStatus === 'failed' && (
                             <div className="text-red-600">
-                              Last notify attempt failed. Check notification logs before retrying.
+                              Last notify attempt failed. Retry below.
                             </div>
                           )}
                         </div>
@@ -1467,6 +1516,17 @@ function BlockCard(props: {
                               className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
                             >
                               Close
+                            </button>
+                          )}
+
+                          {notifyLog && notifyStatus === 'failed' && (
+                            <button
+                              type="button"
+                              onClick={() => onRetryNotification(notifyLog.id)}
+                              disabled={retryingThisNotification}
+                              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                            >
+                              {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
                             </button>
                           )}
 
