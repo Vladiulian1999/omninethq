@@ -49,6 +49,15 @@ type AvailabilityClaim = {
   [key: string]: unknown;
 };
 
+type NotificationLogRow = {
+  id: string;
+  type: string | null;
+  action_id: string | null;
+  status: string | null;
+  response: Record<string, unknown> | null;
+  created_at: string | null;
+};
+
 type BlockFormState = {
   title: string;
   description: string;
@@ -267,6 +276,43 @@ function ownerFlag(claim: AvailabilityClaim, key: string) {
   return Boolean(ownerMeta(claim)[key]);
 }
 
+function notificationResponse(log: NotificationLogRow | null | undefined) {
+  return (log?.response && typeof log.response === 'object' ? log.response : {}) as Record<string, unknown>;
+}
+
+function notificationStatusLabel(status?: string | null) {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (s === 'sent') return 'NOTIFIED';
+  if (s === 'failed') return 'NOTIFY FAILED';
+  if (s === 'attempted') return 'NOTIFYING';
+  return 'NO STATUS';
+}
+
+function notificationBadgeClass(status?: string | null) {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (s === 'sent') return 'bg-emerald-100 text-emerald-700';
+  if (s === 'failed') return 'bg-red-100 text-red-700';
+  if (s === 'attempted') return 'bg-amber-100 text-amber-700';
+  return 'bg-gray-200 text-gray-700';
+}
+
+function providerMessageId(log: NotificationLogRow | null | undefined) {
+  const resp = notificationResponse(log);
+  const direct = String(resp.provider_message_id ?? '').trim();
+  if (direct) return direct;
+
+  const raw = String(resp.resend_body ?? '').trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const id = String(parsed?.id ?? '').trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -288,6 +334,7 @@ export default function AvailabilityClient() {
   const [saving, setSaving] = useState(false);
   const [claimsLoading, setClaimsLoading] = useState(false);
   const [claimsByBlock, setClaimsByBlock] = useState<Record<string, AvailabilityClaim[]>>({});
+  const [notificationsByActionId, setNotificationsByActionId] = useState<Record<string, NotificationLogRow>>({});
   const [claimSavingId, setClaimSavingId] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -309,9 +356,49 @@ export default function AvailabilityClient() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<BlockFormState | null>(null);
 
+  async function loadNotificationsForClaims(claims: AvailabilityClaim[]) {
+    const actionIds = Array.from(
+      new Set(
+        claims
+          .map((c) => String(c.id ?? '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (actionIds.length === 0) {
+      setNotificationsByActionId({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('notification_logs')
+      .select('id, type, action_id, status, response, created_at')
+      .eq('type', 'availability_claim')
+      .in('action_id', actionIds)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to load notification logs:', error);
+      setNotificationsByActionId({});
+      return;
+    }
+
+    const nextMap: Record<string, NotificationLogRow> = {};
+    for (const row of (data ?? []) as NotificationLogRow[]) {
+      const actionId = String(row.action_id ?? '').trim();
+      if (!actionId) continue;
+      if (!nextMap[actionId]) {
+        nextMap[actionId] = row;
+      }
+    }
+
+    setNotificationsByActionId(nextMap);
+  }
+
   async function loadClaims(blockIds: string[]) {
     if (blockIds.length === 0) {
       setClaimsByBlock({});
+      setNotificationsByActionId({});
       return;
     }
 
@@ -326,12 +413,15 @@ export default function AvailabilityClient() {
     if (error) {
       console.error('Failed to load availability claims:', error);
       setClaimsByBlock({});
+      setNotificationsByActionId({});
       setClaimsLoading(false);
       return;
     }
 
+    const claimRows = (data ?? []) as AvailabilityClaim[];
+
     const grouped: Record<string, AvailabilityClaim[]> = {};
-    for (const row of ((data ?? []) as AvailabilityClaim[])) {
+    for (const row of claimRows) {
       const blockId = String(row.block_id ?? '').trim();
       if (!blockId) continue;
       if (!grouped[blockId]) grouped[blockId] = [];
@@ -339,6 +429,7 @@ export default function AvailabilityClient() {
     }
 
     setClaimsByBlock(grouped);
+    await loadNotificationsForClaims(claimRows);
     setClaimsLoading(false);
   }
 
@@ -375,6 +466,7 @@ export default function AvailabilityClient() {
       toast.error('Failed to load availability blocks.');
       setBlocks([]);
       setClaimsByBlock({});
+      setNotificationsByActionId({});
       setLoading(false);
       return;
     }
@@ -859,11 +951,11 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Recent claims visibility</h2>
             <p className="text-sm opacity-80 mt-1">
-              Each block now shows its latest claims with real owner actions.
+              Each block now shows its latest claims with real owner actions and notification status.
             </p>
           </div>
           <div className="text-xs opacity-70">
-            {claimsLoading ? 'Refreshing claims…' : 'Claims loaded from availability_actions'}
+            {claimsLoading ? 'Refreshing claims…' : 'Claims and notification status loaded'}
           </div>
         </div>
       </div>
@@ -874,6 +966,7 @@ export default function AvailabilityClient() {
           subtitle="No time window. Useful for walk-ins, open orders, enquiries, etc."
           blocks={grouped.always}
           claimsByBlock={claimsByBlock}
+          notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
@@ -905,6 +998,7 @@ export default function AvailabilityClient() {
           subtitle="Time-based availability such as slots, offers, or limited windows."
           blocks={grouped.upcoming}
           claimsByBlock={claimsByBlock}
+          notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
@@ -936,6 +1030,7 @@ export default function AvailabilityClient() {
           subtitle="Not public if end time has passed, even if status was not updated."
           blocks={grouped.pastish}
           claimsByBlock={claimsByBlock}
+          notificationsByActionId={notificationsByActionId}
           claimSavingId={claimSavingId}
           editingId={editingId}
           editForm={editForm}
@@ -1114,6 +1209,7 @@ function Section(props: {
   subtitle?: string;
   blocks: AvailabilityBlock[];
   claimsByBlock: Record<string, AvailabilityClaim[]>;
+  notificationsByActionId: Record<string, NotificationLogRow>;
   claimSavingId: string | null;
   editingId: string | null;
   editForm: BlockFormState | null;
@@ -1146,6 +1242,7 @@ function Section(props: {
               key={b.id}
               b={b}
               claims={props.claimsByBlock[b.id] ?? []}
+              notificationsByActionId={props.notificationsByActionId}
               claimSavingId={props.claimSavingId}
               editing={props.editingId === b.id}
               editForm={props.editingId === b.id ? props.editForm : null}
@@ -1171,6 +1268,7 @@ function Section(props: {
 function BlockCard(props: {
   b: AvailabilityBlock;
   claims: AvailabilityClaim[];
+  notificationsByActionId: Record<string, NotificationLogRow>;
   claimSavingId: string | null;
   editing: boolean;
   editForm: BlockFormState | null;
@@ -1189,6 +1287,7 @@ function BlockCard(props: {
   const {
     b,
     claims,
+    notificationsByActionId,
     claimSavingId,
     editing,
     editForm,
@@ -1284,6 +1383,10 @@ function BlockCard(props: {
                     const contacted = ownerFlag(claim, 'owner_contacted');
                     const closed = ownerFlag(claim, 'owner_closed');
                     const confirmed = status === 'confirmed';
+                    const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
+                    const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
+                    const notifyCreatedAt = fmtDT(notifyLog?.created_at ?? null);
+                    const notifyMessageId = providerMessageId(notifyLog);
 
                     return (
                       <div key={`${b.id}-${id || index}`} className="rounded-lg border bg-white p-3 text-sm">
@@ -1309,12 +1412,28 @@ function BlockCard(props: {
                               CLOSED
                             </span>
                           )}
+                          {notifyLog && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${notificationBadgeClass(notifyStatus)}`}>
+                              {notificationStatusLabel(notifyStatus)}
+                            </span>
+                          )}
                         </div>
 
                         <div className="mt-2 text-xs opacity-70 space-y-1">
                           {created && <div>When: {created}</div>}
                           {id && <div>Action: {shorten(id, 12)}</div>}
                           {referral && <div>Referral: {referral}</div>}
+                          {notifyLog && notifyCreatedAt && (
+                            <div>Notification: {notifyCreatedAt}</div>
+                          )}
+                          {notifyLog && notifyMessageId && (
+                            <div>Provider message id: {notifyMessageId}</div>
+                          )}
+                          {notifyLog && notifyStatus === 'failed' && (
+                            <div className="text-red-600">
+                              Last notify attempt failed. Check notification logs before retrying.
+                            </div>
+                          )}
                         </div>
 
                         <div className="mt-3 flex flex-wrap gap-2">
