@@ -75,6 +75,11 @@ type BlockFormState = {
 type ClaimWorkflowState = 'open' | 'contacted' | 'closed';
 type ClaimAgeState = 'new' | 'aging' | 'stale';
 
+type AttentionItem = {
+  claim: AvailabilityClaim;
+  block: AvailabilityBlock;
+};
+
 function fmtMoney(pence: number | null, currency: string) {
   if (pence == null) return null;
   const amount = pence / 100;
@@ -985,6 +990,41 @@ export default function AvailabilityClient() {
     return { always, upcoming, pastish };
   }, [blocks]);
 
+  const needsAttentionNow = useMemo(() => {
+    const blockMap = new Map(blocks.map((b) => [b.id, b] as const));
+
+    const allClaims = Object.values(claimsByBlock).flat();
+
+    const items: AttentionItem[] = allClaims
+      .filter((claim) => claimWorkflowState(claim) === 'open')
+      .filter((claim) => {
+        const age = claimAgeState(claim);
+        return age === 'stale' || age === 'aging';
+      })
+      .map((claim) => {
+        const blockId = String(claim.block_id ?? '').trim();
+        const block = blockMap.get(blockId);
+        return block ? { claim, block } : null;
+      })
+      .filter((item): item is AttentionItem => Boolean(item));
+
+    items.sort((a, b) => {
+      const aAge = claimAgeState(a.claim);
+      const bAge = claimAgeState(b.claim);
+      const rank = { stale: 0, aging: 1, new: 2 } as const;
+      if (rank[aAge] !== rank[bAge]) return rank[aAge] - rank[bAge];
+
+      const aCreated = a.claim.created_at ? new Date(a.claim.created_at).getTime() : 0;
+      const bCreated = b.claim.created_at ? new Date(b.claim.created_at).getTime() : 0;
+      return aCreated - bCreated;
+    });
+
+    return items;
+  }, [blocks, claimsByBlock]);
+
+  const needsAttentionStaleCount = needsAttentionNow.filter((item) => claimAgeState(item.claim) === 'stale').length;
+  const needsAttentionAgingCount = needsAttentionNow.filter((item) => claimAgeState(item.claim) === 'aging').length;
+
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
       <Toaster />
@@ -1048,6 +1088,60 @@ export default function AvailabilityClient() {
                 If you save this as live, any other live block for this tag will be paused first.
               </p>
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-6 rounded-2xl border p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Needs attention now</h2>
+            <p className="text-sm opacity-80 mt-1">
+              This pulls aging and stale open claims from every block into one priority queue so the owner stops scanning blind.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+              Aging {needsAttentionAgingCount}
+            </span>
+            <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+              Stale {needsAttentionStaleCount}
+            </span>
+          </div>
+        </div>
+
+        {needsAttentionNow.length === 0 ? (
+          <div className="mt-4 rounded-xl border bg-black/[0.02] p-4 text-sm opacity-70">
+            Nothing urgent right now.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {needsAttentionNow.map((item, index) => (
+              <AttentionClaimCard
+                key={`${item.claim.id ?? item.claim.action_id ?? index}`}
+                claim={item.claim}
+                block={item.block}
+                notifyLog={
+                  item.claim.id ? notificationsByActionId[String(item.claim.id).trim()] ?? null : null
+                }
+                claimSavingId={claimSavingId}
+                retryingNotificationLogId={retryingNotificationLogId}
+                onConfirmClaim={confirmClaim}
+                onMarkContacted={(claim) =>
+                  updateClaimMeta(claim, {
+                    owner_contacted: true,
+                    owner_contacted_at: new Date().toISOString(),
+                  })
+                }
+                onMarkClosed={(claim) =>
+                  updateClaimMeta(claim, {
+                    owner_closed: true,
+                    owner_closed_at: new Date().toISOString(),
+                  })
+                }
+                onRetryNotification={retryNotification}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -1310,6 +1404,142 @@ function BlockEditorFields(props: {
             <option value="EUR">EUR</option>
             <option value="USD">USD</option>
           </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AttentionClaimCard(props: {
+  claim: AvailabilityClaim;
+  block: AvailabilityBlock;
+  notifyLog: NotificationLogRow | null;
+  claimSavingId: string | null;
+  retryingNotificationLogId: string | null;
+  onConfirmClaim: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkContacted: (claim: AvailabilityClaim) => Promise<void>;
+  onMarkClosed: (claim: AvailabilityClaim) => Promise<void>;
+  onRetryNotification: (notificationLogId: string) => Promise<void>;
+}) {
+  const {
+    claim,
+    block,
+    notifyLog,
+    claimSavingId,
+    retryingNotificationLogId,
+    onConfirmClaim,
+    onMarkContacted,
+    onMarkClosed,
+    onRetryNotification,
+  } = props;
+
+  const rowId = String(claim.id ?? '').trim();
+  const savingThisClaim = claimSavingId === rowId;
+  const ageState = claimAgeState(claim);
+  const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
+  const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
+  const confirmed = claimStatus(claim) === 'confirmed';
+  const contact = String(claim.customer_contact ?? '').trim();
+
+  return (
+    <div className="rounded-xl border bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-xs px-2 py-1 rounded-full ${claimAgeBadgeClass(ageState)}`}>
+              {claimAgeLabel(ageState)}
+            </span>
+            <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+              {block.title}
+            </span>
+            <span className={`text-xs px-2 py-1 rounded-full ${workflowBadgeClass('open')}`}>
+              OPEN
+            </span>
+            {notifyLog && (
+              <span className={`text-xs px-2 py-1 rounded-full ${notificationBadgeClass(notifyStatus)}`}>
+                {notificationStatusLabel(notifyStatus)}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 font-medium">{claimDisplayName(claim)}</div>
+
+          <div className="mt-2 text-xs opacity-70 space-y-1">
+            {claim.created_at && <div>When: {fmtDT(claim.created_at)}</div>}
+            <div>Age: {claimAgeHelpText(ageState)}</div>
+            <div>Action: {shorten(claimPrimaryId(claim), 12)}</div>
+            {claim.referral_code && <div>Referral: {String(claim.referral_code)}</div>}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!confirmed && (
+            <button
+              type="button"
+              onClick={() => onConfirmClaim(claim)}
+              disabled={savingThisClaim}
+              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+            >
+              Confirm
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onMarkContacted(claim)}
+            disabled={savingThisClaim}
+            className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+          >
+            Mark contacted
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onMarkClosed(claim)}
+            disabled={savingThisClaim}
+            className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+          >
+            Close
+          </button>
+
+          {notifyLog && notifyStatus === 'failed' && (
+            <button
+              type="button"
+              onClick={() => onRetryNotification(notifyLog.id)}
+              disabled={retryingThisNotification}
+              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+            >
+              {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
+            </button>
+          )}
+
+          {contact && (
+            <button
+              type="button"
+              onClick={() => copyText(contact)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+            >
+              Copy contact
+            </button>
+          )}
+
+          {contact && isPhoneLike(contact) && (
+            <a
+              href={phoneHref(contact)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+            >
+              Call
+            </a>
+          )}
+
+          {contact && isPhoneLike(contact) && (
+            <a
+              href={smsHref(contact)}
+              className="px-3 py-2 rounded-xl border hover:opacity-80"
+            >
+              SMS
+            </a>
+          )}
         </div>
       </div>
     </div>
