@@ -80,6 +80,17 @@ type AttentionItem = {
   block: AvailabilityBlock;
 };
 
+type ClaimLoadDiagnostic = {
+  error: string | null;
+  loadedCount: number | null;
+  unmatchedClaims: Array<{
+    id: string;
+    block_id: string | null;
+    tag_id: string | null;
+    status: string | null;
+  }>;
+};
+
 function fmtMoney(pence: number | null, currency: string) {
   if (pence == null) return null;
   const amount = pence / 100;
@@ -284,6 +295,10 @@ function ownerFlag(claim: AvailabilityClaim, key: string) {
   return Boolean(ownerMeta(claim)[key]);
 }
 
+function ownerAcknowledged(claim: AvailabilityClaim) {
+  return ownerFlag(claim, 'owner_acknowledged') || ownerFlag(claim, 'owner_confirmed');
+}
+
 function notificationResponse(log: NotificationLogRow | null | undefined) {
   return (log?.response && typeof log.response === 'object' ? log.response : {}) as Record<string, unknown>;
 }
@@ -412,6 +427,11 @@ export default function AvailabilityClient() {
   const [claimsLoading, setClaimsLoading] = useState(false);
   const [claimsByBlock, setClaimsByBlock] = useState<Record<string, AvailabilityClaim[]>>({});
   const [notificationsByActionId, setNotificationsByActionId] = useState<Record<string, NotificationLogRow>>({});
+  const [claimLoadDiagnostic, setClaimLoadDiagnostic] = useState<ClaimLoadDiagnostic>({
+    error: null,
+    loadedCount: null,
+    unmatchedClaims: [],
+  });
   const [claimSavingId, setClaimSavingId] = useState<string | null>(null);
   const [retryingNotificationLogId, setRetryingNotificationLogId] = useState<string | null>(null);
 
@@ -477,10 +497,21 @@ export default function AvailabilityClient() {
     if (blockIds.length === 0) {
       setClaimsByBlock({});
       setNotificationsByActionId({});
+      setClaimLoadDiagnostic({
+        error: null,
+        loadedCount: 0,
+        unmatchedClaims: [],
+      });
+      console.info('[availability claims] skipped claim load: no loaded block ids');
       return;
     }
 
     setClaimsLoading(true);
+    setClaimLoadDiagnostic({
+      error: null,
+      loadedCount: null,
+      unmatchedClaims: [],
+    });
 
     const { data, error } = await supabase
       .from('availability_actions')
@@ -490,6 +521,11 @@ export default function AvailabilityClient() {
 
     if (error) {
       console.error('Failed to load availability claims:', error);
+      setClaimLoadDiagnostic({
+        error: error.message || 'Failed to load availability claims.',
+        loadedCount: null,
+        unmatchedClaims: [],
+      });
       setClaimsByBlock({});
       setNotificationsByActionId({});
       setClaimsLoading(false);
@@ -497,6 +533,36 @@ export default function AvailabilityClient() {
     }
 
     const claimRows = (data ?? []) as AvailabilityClaim[];
+    const loadedBlockIds = new Set(blockIds.map((id) => String(id).trim()).filter(Boolean));
+    const unmatchedClaims: ClaimLoadDiagnostic['unmatchedClaims'] = [];
+
+    console.info('[availability claims] loaded count', claimRows.length);
+    for (const row of claimRows) {
+      const claimId = String(row.id ?? row.action_id ?? '').trim();
+      const blockId = String(row.block_id ?? '').trim();
+      const rowTagId = String((row as any).tag_id ?? '').trim();
+      const status = String(row.status ?? '').trim();
+
+      console.info('[availability claims] row', {
+        id: claimId || null,
+        block_id: blockId || null,
+        tag_id: rowTagId || null,
+        status: status || null,
+      });
+
+      if (!blockId || !loadedBlockIds.has(blockId)) {
+        unmatchedClaims.push({
+          id: claimId || '(missing id)',
+          block_id: blockId || null,
+          tag_id: rowTagId || null,
+          status: status || null,
+        });
+      }
+    }
+
+    if (unmatchedClaims.length > 0) {
+      console.warn('[availability claims] unmatched claims returned by canonical block query', unmatchedClaims);
+    }
 
     const grouped: Record<string, AvailabilityClaim[]> = {};
     for (const row of claimRows) {
@@ -506,6 +572,11 @@ export default function AvailabilityClient() {
       grouped[blockId].push(row);
     }
 
+    setClaimLoadDiagnostic({
+      error: null,
+      loadedCount: claimRows.length,
+      unmatchedClaims,
+    });
     setClaimsByBlock(grouped);
     await loadNotificationsForClaims(claimRows);
     setClaimsLoading(false);
@@ -895,27 +966,25 @@ export default function AvailabilityClient() {
 
     const nextMeta = {
       ...(ownerMeta(claim) || {}),
-      owner_confirmed_at: new Date().toISOString(),
-      owner_confirmed_by: sessionUserId,
+      owner_acknowledged: true,
+      owner_acknowledged_at: new Date().toISOString(),
+      owner_acknowledged_by: sessionUserId,
     };
 
     const { error } = await supabase
       .from('availability_actions')
-      .update({
-        status: 'confirmed',
-        meta: nextMeta,
-      })
+      .update({ meta: nextMeta })
       .eq('id', id);
 
     setClaimSavingId(null);
 
     if (error) {
       console.error(error);
-      toast.error(error.message || 'Failed to confirm claim.');
+      toast.error(error.message || 'Failed to acknowledge claim.');
       return;
     }
 
-    toast.success('Claim confirmed.');
+    toast.success('Claim acknowledged.');
     await loadAll();
   }
 
@@ -1157,6 +1226,35 @@ export default function AvailabilityClient() {
           <div className="text-xs opacity-70">
             {claimsLoading ? 'Refreshing claims…' : 'Claims, age, and notification status loaded'}
           </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border bg-black/[0.02] p-3 text-xs">
+          <div className="font-medium">Claim load diagnostics</div>
+          <div className="mt-1 opacity-80">
+            Loaded claims from canonical block query:{' '}
+            {claimLoadDiagnostic.loadedCount == null ? 'not loaded yet' : claimLoadDiagnostic.loadedCount}
+          </div>
+
+          {claimLoadDiagnostic.error && (
+            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-red-700">
+              availability_actions load failed: {claimLoadDiagnostic.error}
+            </div>
+          )}
+
+          {claimLoadDiagnostic.unmatchedClaims.length > 0 && (
+            <div className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50 p-2 text-yellow-800">
+              <div className="font-medium">
+                Claims returned with empty or unmatched block_id: {claimLoadDiagnostic.unmatchedClaims.length}
+              </div>
+              <div className="mt-1 space-y-1">
+                {claimLoadDiagnostic.unmatchedClaims.map((claim, index) => (
+                  <div key={`${claim.id}-${index}`} className="font-mono">
+                    id={claim.id} block_id={claim.block_id || 'null'} tag_id={claim.tag_id || 'null'} status={claim.status || 'null'}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1439,6 +1537,7 @@ function AttentionClaimCard(props: {
   const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
   const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
   const confirmed = claimStatus(claim) === 'confirmed';
+  const acknowledged = ownerAcknowledged(claim);
   const contact = String(claim.customer_contact ?? '').trim();
 
   return (
@@ -1460,6 +1559,11 @@ function AttentionClaimCard(props: {
                 {notificationStatusLabel(notifyStatus)}
               </span>
             )}
+            {acknowledged && (
+              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                ACKNOWLEDGED
+              </span>
+            )}
           </div>
 
           <div className="mt-2 font-medium">{claimDisplayName(claim)}</div>
@@ -1473,14 +1577,14 @@ function AttentionClaimCard(props: {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {!confirmed && (
+          {!confirmed && !acknowledged && (
             <button
               type="button"
               onClick={() => onConfirmClaim(claim)}
               disabled={savingThisClaim}
               className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
             >
-              Confirm
+              Acknowledge
             </button>
           )}
 
@@ -1666,6 +1770,7 @@ function ClaimGroup(props: {
             const savingThisClaim = claimSavingId === rowId;
             const contacted = ownerFlag(claim, 'owner_contacted');
             const closed = ownerFlag(claim, 'owner_closed');
+            const acknowledged = ownerAcknowledged(claim);
             const confirmed = status === 'confirmed';
             const workflow = claimWorkflowState(claim);
             const ageState = claimAgeState(claim);
@@ -1695,6 +1800,11 @@ function ClaimGroup(props: {
                   {confirmed && (
                     <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
                       CONFIRMED
+                    </span>
+                  )}
+                  {acknowledged && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                      ACKNOWLEDGED
                     </span>
                   )}
                   {contacted && (
@@ -1731,14 +1841,14 @@ function ClaimGroup(props: {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {!confirmed && (
+                  {!confirmed && !acknowledged && (
                     <button
                       type="button"
                       onClick={() => onConfirmClaim(claim)}
                       disabled={savingThisClaim}
                       className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
                     >
-                      Confirm
+                      Acknowledge
                     </button>
                   )}
 
