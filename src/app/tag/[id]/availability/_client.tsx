@@ -299,6 +299,16 @@ function ownerAcknowledged(claim: AvailabilityClaim) {
   return ownerFlag(claim, 'owner_acknowledged') || ownerFlag(claim, 'owner_confirmed');
 }
 
+function isPaymentConfirmedClaim(claim: AvailabilityClaim) {
+  if (claimStatus(claim) !== 'confirmed') return false;
+
+  const meta = ownerMeta(claim);
+  const checkoutSessionId = String(claim.stripe_checkout_session_id ?? meta.stripe_session_id ?? '').trim();
+  const paymentIntentId = String(claim.stripe_payment_intent_id ?? meta.payment_intent_id ?? '').trim();
+
+  return Boolean(checkoutSessionId || paymentIntentId);
+}
+
 function notificationResponse(log: NotificationLogRow | null | undefined) {
   return (log?.response && typeof log.response === 'object' ? log.response : {}) as Record<string, unknown>;
 }
@@ -1536,7 +1546,7 @@ function AttentionClaimCard(props: {
   const ageState = claimAgeState(claim);
   const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
   const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
-  const confirmed = claimStatus(claim) === 'confirmed';
+  const paymentConfirmed = isPaymentConfirmedClaim(claim);
   const acknowledged = ownerAcknowledged(claim);
   const contact = String(claim.customer_contact ?? '').trim();
 
@@ -1559,6 +1569,11 @@ function AttentionClaimCard(props: {
                 {notificationStatusLabel(notifyStatus)}
               </span>
             )}
+            {paymentConfirmed && (
+              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                CONFIRMED
+              </span>
+            )}
             {acknowledged && (
               <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
                 ACKNOWLEDGED
@@ -1577,7 +1592,7 @@ function AttentionClaimCard(props: {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {!confirmed && !acknowledged && (
+          {!paymentConfirmed && !acknowledged && (
             <button
               type="button"
               onClick={() => onConfirmClaim(claim)}
@@ -1771,7 +1786,7 @@ function ClaimGroup(props: {
             const contacted = ownerFlag(claim, 'owner_contacted');
             const closed = ownerFlag(claim, 'owner_closed');
             const acknowledged = ownerAcknowledged(claim);
-            const confirmed = status === 'confirmed';
+            const paymentConfirmed = isPaymentConfirmedClaim(claim);
             const workflow = claimWorkflowState(claim);
             const ageState = claimAgeState(claim);
             const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
@@ -1797,7 +1812,7 @@ function ClaimGroup(props: {
                   {channel && (
                     <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
                   )}
-                  {confirmed && (
+                  {paymentConfirmed && (
                     <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
                       CONFIRMED
                     </span>
@@ -1841,7 +1856,7 @@ function ClaimGroup(props: {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {!confirmed && !acknowledged && (
+                  {!paymentConfirmed && !acknowledged && (
                     <button
                       type="button"
                       onClick={() => onConfirmClaim(claim)}
