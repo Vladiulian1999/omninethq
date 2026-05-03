@@ -449,8 +449,35 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     };
 
     const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUserId(data?.user?.id || null);
+      try {
+        const { data, error } = await supabase.auth.getUser();
+
+        if (error) {
+          const message = error.message || '';
+          console.warn('Public tag auth lookup failed; continuing as signed out.', error);
+          setUserId(null);
+
+          if (/invalid refresh token|refresh token not found|refresh token/i.test(message)) {
+            await supabase.auth.signOut().catch((signOutError) => {
+              console.warn('Failed to clear stale Supabase session.', signOutError);
+            });
+          }
+
+          return;
+        }
+
+        setUserId(data?.user?.id || null);
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        console.warn('Public tag auth lookup failed; continuing as signed out.', error);
+        setUserId(null);
+
+        if (/invalid refresh token|refresh token not found|refresh token/i.test(message)) {
+          await supabase.auth.signOut().catch((signOutError) => {
+            console.warn('Failed to clear stale Supabase session.', signOutError);
+          });
+        }
+      }
     };
 
     const fetchViews = async () => {
@@ -804,26 +831,36 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   async function claimAvailability(block: AvailabilityBlockRow, quantity = 1) {
     const idempotencyKey = makeAvailabilityIdempotencyKey(block, quantity);
 
-    const { data, error } = await supabase.rpc('claim_availability_block', {
-      p_block_id: block.id,
-      p_idempotency_key: idempotencyKey,
-      p_quantity: quantity,
-      p_customer_name: null,
-      p_customer_contact: null,
-      p_channel: 'qr',
-      p_referral_code: localStorage.getItem('referral_code'),
-      p_meta: { source: 'tag_page', action_type: block.action_type },
+    const res = await fetch('/api/availability/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blockId: block.id,
+        quantity,
+        idempotencyKey,
+        customerName: null,
+        customerContact: null,
+        channel: 'qr',
+        referralCode: localStorage.getItem('referral_code'),
+        meta: { source: 'tag_page', action_type: block.action_type },
+      }),
     });
 
-    if (error) {
-      const msg = (error.message || '').toLowerCase();
+    const json = await res.json();
+
+    if (!res.ok || !json?.ok) {
+      const msg = String(json?.error || '').toLowerCase();
       if (msg.includes('availability block not found')) {
         throw new Error('This availability is no longer active. Please refresh and try again.');
       }
-      throw error;
+      throw new Error(json?.error || 'Failed to claim availability.');
     }
 
-    const row = (data as any)?.[0];
+    if (json?.notification?.attempted && json.notification.ok === false) {
+      console.warn('availability notification failed after claim success', json.notification);
+    }
+
+    const row = json?.claim;
     if (!row?.action_id) throw new Error('Claim failed (no action_id returned).');
     return row as {
       action_id: string;
@@ -831,35 +868,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       block_id: string;
       block_remaining: number;
     };
-  }
-
-  async function notifyAvailabilityAction(params: {
-    actionId: string;
-    blockId: string;
-    tagId: string;
-  }) {
-    const { data, error } = await supabase.functions.invoke('availability-notify', {
-      body: {
-        type: 'CLAIM',
-        record: {
-          action_id: params.actionId,
-          block_id: params.blockId,
-          tag_id: params.tagId,
-        },
-      },
-    });
-
-    if (error) {
-      console.error('availability-notify invoke error', error);
-      return;
-    }
-
-    if (data && data.ok === false) {
-      console.error('availability-notify returned failure', data);
-      return;
-    }
-
-    console.log('availability-notify success', data);
   }
 
   async function saveReserveContactDetails() {
@@ -966,12 +974,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       const claim = await claimAvailability(block, 1);
 
       setAvailabilityRefreshKey((k) => k + 1);
-
-      void notifyAvailabilityAction({
-        actionId: claim.action_id,
-        blockId: block.id,
-        tagId: cleanId,
-      });
 
       const nextConfirmation = {
         actionId: claim.action_id,
