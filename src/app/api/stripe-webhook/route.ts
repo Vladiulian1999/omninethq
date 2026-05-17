@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { logOperationalEvent } from '@/lib/operationalEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,39 +74,49 @@ export async function POST(req: NextRequest) {
       const supabase = getServiceSupabase();
 
       // ---- 0) If this checkout was for an availability action: confirm atomically ----
-      // confirm_availability_action is idempotent: if already confirmed it returns ok=true and does not decrement again.
       if (availabilityActionId) {
-        const { data: confirmData, error: confirmErr } = await supabase.rpc('confirm_availability_action', {
+        const { data: confirmResult, error: confirmErr } = await supabase.rpc('transition_payment_confirmed', {
           p_action_id: availabilityActionId,
+          p_stripe_checkout_session_id: stripeSessionId,
+          p_stripe_payment_intent_id: paymentIntentId,
         });
 
         if (confirmErr) {
-          console.error('[webhook] confirm_availability_action error:', confirmErr.message);
-        } else {
-          // store Stripe IDs + keep status consistent
-          const { error: aaErr } = await supabase
-            .from('availability_actions')
-            .update({
-              stripe_checkout_session_id: stripeSessionId,
-              stripe_payment_intent_id: paymentIntentId,
-              status: 'confirmed',
-              meta: {
-                stripe_session_id: stripeSessionId,
-                payment_intent_id: paymentIntentId,
-                confirmed_at: new Date().toISOString(),
-                confirm_result: confirmData ?? null,
-              },
-              block_id: blockId || null,
+          console.error('[webhook] transition_payment_confirmed error:', confirmErr.message);
+          await logOperationalEvent({
+            actionId: availabilityActionId,
+            eventType: 'payment_confirm_failed',
+            actorType: 'stripe',
+            source: 'api/stripe-webhook',
+            success: false,
+            correlationId: stripeSessionId,
+            payload: {
+              event_id: event.id,
+              block_id: blockId,
               tag_id: tagId,
-            })
-            .eq('id', availabilityActionId);
-
-          if (aaErr) {
-            const msg = aaErr.message.toLowerCase();
-            if (!msg.includes('duplicate') && !msg.includes('unique')) {
-              console.warn('[webhook] availability_actions update error:', aaErr.message);
-            }
-          }
+              stripe_checkout_session_id: stripeSessionId,
+              error: confirmErr.message,
+              code: String((confirmErr as any)?.code ?? ''),
+            },
+          });
+        } else {
+          const idempotent = Boolean((confirmResult as any)?.idempotent);
+          await logOperationalEvent({
+            actionId: availabilityActionId,
+            publicRef: (confirmResult as any)?.action?.public_ref ?? null,
+            eventType: idempotent ? 'webhook_duplicate_ignored' : 'payment_confirmed',
+            actorType: 'stripe',
+            source: 'api/stripe-webhook',
+            success: true,
+            correlationId: stripeSessionId,
+            payload: {
+              event_id: event.id,
+              block_id: blockId,
+              tag_id: tagId,
+              stripe_checkout_session_id: stripeSessionId,
+              idempotent,
+            },
+          });
         }
       }
 

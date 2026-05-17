@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { logOperationalEvent } from "@/lib/operationalEvents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,10 @@ function getServiceSupabase() {
 
 function makeIdempotencyKey(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+function makePublicRef() {
+  return `clm_${crypto.randomBytes(24).toString("base64url")}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -75,12 +80,14 @@ export async function POST(req: NextRequest) {
 
     // 1) Create (or reuse) availability action (idempotent by idempotency_key UNIQUE)
     let actionRow: any = null;
+    const publicRef = makePublicRef();
 
     const { data: action, error: actionErr } = await supabase
       .from("availability_actions")
       .insert({
         tag_id: message_id,
         block_id,
+        public_ref: publicRef,
         status: "pending", // allowed by your enum
         quantity: qty,
         idempotency_key,
@@ -143,9 +150,90 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Action row missing id" }, { status: 500 });
     }
 
+    if (!actionRow.public_ref) {
+      const nextPublicRef = makePublicRef();
+      const { data: patched, error: publicRefErr } = await supabase
+        .from("availability_actions")
+        .update({ public_ref: nextPublicRef })
+        .eq("id", actionRow.id)
+        .is("public_ref", null)
+        .select("*")
+        .maybeSingle();
+
+      if (publicRefErr) {
+        return NextResponse.json({ error: "Failed to create public claim reference" }, { status: 500 });
+      }
+
+      if (patched?.public_ref) actionRow = patched;
+    }
+
+    const claimRef = String(actionRow.public_ref ?? "").trim();
+    if (!claimRef) {
+      return NextResponse.json({ error: "Action row missing public_ref" }, { status: 500 });
+    }
+
+    const { data: claimedTransition, error: claimedTransitionErr } = await supabase.rpc("transition_action_claimed", {
+      p_action_id: actionRow.id,
+      p_action_type: String(block.action_type ?? "pay").toLowerCase(),
+    });
+
+    if (claimedTransitionErr) {
+      const code = String((claimedTransitionErr as any)?.code ?? "");
+      await logOperationalEvent({
+        actionId: actionRow.id,
+        publicRef: claimRef,
+        eventType: "claim_transition_failed",
+        actorType: "public",
+        source: "api/checkout/create",
+        success: false,
+        correlationId: idempotency_key,
+        payload: {
+          block_id,
+          tag_id: message_id,
+          action_type: String(block.action_type ?? "pay").toLowerCase(),
+          error: claimedTransitionErr.message,
+          code,
+        },
+      });
+      return NextResponse.json(
+        {
+          error: "Claim state transition failed",
+          postgres: {
+            code,
+            message: claimedTransitionErr.message,
+            details: (claimedTransitionErr as any)?.details,
+            hint: (claimedTransitionErr as any)?.hint,
+          },
+        },
+        { status: code === "P0002" ? 404 : 500 }
+      );
+    }
+
+    actionRow = (claimedTransition as any)?.action ?? actionRow;
+    await logOperationalEvent({
+      actionId: actionRow.id,
+      publicRef: claimRef,
+      eventType: "claim_created",
+      actorType: "public",
+      source: "api/checkout/create",
+      success: true,
+      correlationId: idempotency_key,
+      payload: {
+        block_id,
+        tag_id: message_id,
+        action_type: String(block.action_type ?? "pay").toLowerCase(),
+        quantity: qty,
+      },
+    });
+
     // 2) Create Stripe checkout session (idempotent too)
     const currency = String(block.currency || "gbp").toLowerCase();
     const unit_amount = Number(block.price_pence ?? 0);
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || "";
+    const successUrl = new URL("/success", origin || "https://omninethq.co.uk");
+    successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+    successUrl.searchParams.set("tag", message_id);
+    successUrl.searchParams.set("claim", claimRef);
 
     const session = await stripe.checkout.sessions.create(
       {
@@ -160,7 +248,7 @@ export async function POST(req: NextRequest) {
             quantity: qty,
           },
         ],
-        success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success`,
+        success_url: successUrl.toString(),
         cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/cancel`,
         metadata: {
           tagId: message_id,
@@ -172,10 +260,65 @@ export async function POST(req: NextRequest) {
       { idempotencyKey: `checkout_${idempotency_key}` }
     );
 
+    const { data: checkoutTransition, error: actionUpdateErr } = await supabase.rpc("transition_checkout_created", {
+      p_action_id: actionRow.id,
+      p_stripe_checkout_session_id: session.id,
+    });
+
+    if (actionUpdateErr) {
+      console.warn("Checkout action canonical update failed:", actionUpdateErr.message);
+      const code = String((actionUpdateErr as any)?.code ?? "");
+      const status = code === "23514" || code === "23505" ? 409 : code === "P0002" ? 404 : 500;
+      await logOperationalEvent({
+        actionId: actionRow.id,
+        publicRef: claimRef,
+        eventType: "checkout_transition_failed",
+        actorType: "public",
+        source: "api/checkout/create",
+        success: false,
+        correlationId: session.id,
+        payload: {
+          block_id,
+          tag_id: message_id,
+          stripe_checkout_session_id: session.id,
+          error: actionUpdateErr.message,
+          code,
+        },
+      });
+      return NextResponse.json(
+        {
+          error: "Checkout state transition failed",
+          postgres: {
+            code,
+            message: actionUpdateErr.message,
+            details: (actionUpdateErr as any)?.details,
+            hint: (actionUpdateErr as any)?.hint,
+          },
+        },
+        { status }
+      );
+    }
+
+    await logOperationalEvent({
+      actionId: actionRow.id,
+      publicRef: claimRef,
+      eventType: "checkout_created",
+      actorType: "public",
+      source: "api/checkout/create",
+      success: true,
+      correlationId: session.id,
+      payload: {
+        block_id,
+        tag_id: message_id,
+        stripe_checkout_session_id: session.id,
+        idempotent: Boolean((checkoutTransition as any)?.idempotent),
+      },
+    });
+
     return NextResponse.json({
       ok: true,
       checkout_url: session.url,
-      availability_action_id: actionRow.id,
+      claim_ref: claimRef,
       idempotency_key,
     });
   } catch (err: any) {

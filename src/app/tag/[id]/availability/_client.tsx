@@ -38,6 +38,16 @@ type AvailabilityClaim = {
   action_id?: string | null;
   block_id?: string | null;
   status?: string | null;
+  action_status?: string | null;
+  payment_status?: string | null;
+  owner_status?: string | null;
+  owner_acknowledged_at?: string | null;
+  owner_contacted_at?: string | null;
+  owner_closed_at?: string | null;
+  fulfilled_at?: string | null;
+  cancelled_at?: string | null;
+  expired_at?: string | null;
+  payment_confirmed_at?: string | null;
   quantity?: number | null;
   customer_name?: string | null;
   customer_contact?: string | null;
@@ -74,6 +84,7 @@ type BlockFormState = {
 
 type ClaimWorkflowState = 'open' | 'contacted' | 'closed';
 type ClaimAgeState = 'new' | 'aging' | 'stale';
+type PaymentAgeState = 'none' | 'waiting' | 'stale';
 
 type AttentionItem = {
   claim: AvailabilityClaim;
@@ -267,7 +278,11 @@ function claimQuantity(c: AvailabilityClaim) {
 }
 
 function claimStatus(c: AvailabilityClaim) {
-  return String(c.status ?? 'initiated').trim() || 'initiated';
+  return String(c.action_status ?? c.status ?? 'initiated').trim() || 'initiated';
+}
+
+function claimStatusLabel(c: AvailabilityClaim) {
+  return claimStatus(c).replace(/_/g, ' ').toUpperCase();
 }
 
 function shorten(v: string, n = 8) {
@@ -296,10 +311,30 @@ function ownerFlag(claim: AvailabilityClaim, key: string) {
 }
 
 function ownerAcknowledged(claim: AvailabilityClaim) {
-  return ownerFlag(claim, 'owner_acknowledged') || ownerFlag(claim, 'owner_confirmed');
+  const ownerStatus = String(claim.owner_status ?? '').trim().toLowerCase();
+  return (
+    Boolean(claim.owner_acknowledged_at) ||
+    ownerStatus === 'acknowledged' ||
+    ownerStatus === 'contacted' ||
+    ownerStatus === 'closed' ||
+    ownerFlag(claim, 'owner_acknowledged') ||
+    ownerFlag(claim, 'owner_confirmed')
+  );
+}
+
+function ownerContacted(claim: AvailabilityClaim) {
+  const ownerStatus = String(claim.owner_status ?? '').trim().toLowerCase();
+  return Boolean(claim.owner_contacted_at) || ownerStatus === 'contacted' || ownerStatus === 'closed' || ownerFlag(claim, 'owner_contacted');
+}
+
+function ownerClosed(claim: AvailabilityClaim) {
+  const ownerStatus = String(claim.owner_status ?? '').trim().toLowerCase();
+  return Boolean(claim.owner_closed_at) || ownerStatus === 'closed' || ownerFlag(claim, 'owner_closed');
 }
 
 function isPaymentConfirmedClaim(claim: AvailabilityClaim) {
+  const paymentStatus = String(claim.payment_status ?? '').trim().toLowerCase();
+  if (paymentStatus === 'paid') return true;
   if (claimStatus(claim) !== 'confirmed') return false;
 
   const meta = ownerMeta(claim);
@@ -347,11 +382,13 @@ function providerMessageId(log: NotificationLogRow | null | undefined) {
 }
 
 function claimWorkflowState(claim: AvailabilityClaim): ClaimWorkflowState {
-  const closed = ownerFlag(claim, 'owner_closed');
-  if (closed) return 'closed';
+  const ownerStatus = String(claim.owner_status ?? '').trim().toLowerCase();
+  if (ownerStatus === 'closed' || Boolean(claim.owner_closed_at)) return 'closed';
+  if (ownerStatus === 'contacted' || Boolean(claim.owner_contacted_at)) return 'contacted';
 
-  const contacted = ownerFlag(claim, 'owner_contacted');
-  if (contacted) return 'contacted';
+  if (ownerClosed(claim)) return 'closed';
+
+  if (ownerContacted(claim)) return 'contacted';
 
   return 'open';
 }
@@ -368,16 +405,26 @@ function workflowBadgeClass(state: ClaimWorkflowState) {
   return 'bg-gray-200 text-gray-700';
 }
 
-function claimAgeState(claim: AvailabilityClaim): ClaimAgeState {
+const CLAIM_AGING_MS = 15 * 60 * 1000;
+const CLAIM_STALE_MS = 60 * 60 * 1000;
+const PAYMENT_WAITING_MS = 15 * 60 * 1000;
+const PAYMENT_STALE_MS = 60 * 60 * 1000;
+
+function claimAgeMs(claim: AvailabilityClaim) {
   const createdAt = String(claim.created_at ?? '').trim();
-  if (!createdAt) return 'new';
+  if (!createdAt) return null;
 
   const createdMs = new Date(createdAt).getTime();
-  if (!Number.isFinite(createdMs)) return 'new';
+  if (!Number.isFinite(createdMs)) return null;
 
-  const ageMs = Date.now() - createdMs;
-  if (ageMs >= 60 * 60 * 1000) return 'stale';
-  if (ageMs >= 15 * 60 * 1000) return 'aging';
+  return Math.max(0, Date.now() - createdMs);
+}
+
+function claimAgeState(claim: AvailabilityClaim): ClaimAgeState {
+  const ageMs = claimAgeMs(claim);
+  if (ageMs == null) return 'new';
+  if (ageMs >= CLAIM_STALE_MS) return 'stale';
+  if (ageMs >= CLAIM_AGING_MS) return 'aging';
   return 'new';
 }
 
@@ -394,9 +441,62 @@ function claimAgeBadgeClass(state: ClaimAgeState) {
 }
 
 function claimAgeHelpText(state: ClaimAgeState) {
-  if (state === 'stale') return 'Open too long. This is being neglected.';
-  if (state === 'aging') return 'Needs attention soon.';
+  if (state === 'stale') return 'Open for 1h+. Contact or close this claim.';
+  if (state === 'aging') return 'Open for 15m+. Check it soon.';
   return 'Fresh claim.';
+}
+
+function relativeClaimAge(claim: AvailabilityClaim) {
+  const ageMs = claimAgeMs(claim);
+  if (ageMs == null) return null;
+
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m old`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours < 24) return remainder ? `${hours}h ${remainder}m old` : `${hours}h old`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d old`;
+}
+
+function paymentAgeState(claim: AvailabilityClaim): PaymentAgeState {
+  if (isPaymentConfirmedClaim(claim)) return 'none';
+
+  const actionStatus = claimStatus(claim).toLowerCase();
+  const paymentStatus = String(claim.payment_status ?? '').trim().toLowerCase();
+  const awaitingPayment =
+    actionStatus === 'awaiting_payment' ||
+    paymentStatus === 'pending' ||
+    paymentStatus === 'checkout_created';
+
+  if (!awaitingPayment) return 'none';
+
+  const ageMs = claimAgeMs(claim);
+  if (ageMs == null) return 'waiting';
+  if (ageMs >= PAYMENT_STALE_MS) return 'stale';
+  if (ageMs >= PAYMENT_WAITING_MS) return 'waiting';
+  return 'none';
+}
+
+function paymentAgeLabel(state: PaymentAgeState) {
+  if (state === 'stale') return 'PAYMENT STALE';
+  if (state === 'waiting') return 'PAYMENT WAITING';
+  return '';
+}
+
+function paymentAgeBadgeClass(state: PaymentAgeState) {
+  if (state === 'stale') return 'bg-red-100 text-red-700';
+  if (state === 'waiting') return 'bg-yellow-100 text-yellow-700';
+  return '';
+}
+
+function paymentAgeHelpText(state: PaymentAgeState) {
+  if (state === 'stale') return 'Checkout started 1h+ ago and is still unpaid.';
+  if (state === 'waiting') return 'Checkout started 15m+ ago and is still unpaid.';
+  return null;
 }
 
 function sortClaimsForWorkflow(claims: AvailabilityClaim[], state: ClaimWorkflowState) {
@@ -941,23 +1041,25 @@ export default function AvailabilityClient() {
 
     setClaimSavingId(id);
 
-    const nextMeta = {
-      ...(ownerMeta(claim) || {}),
-      ...patch,
-      owner_action_updated_at: new Date().toISOString(),
-      owner_action_updated_by: sessionUserId,
-    };
+    const transition = patch.owner_closed ? 'close' : patch.owner_contacted ? 'contact' : null;
+    if (!transition) {
+      setClaimSavingId(null);
+      toast.error('Unsupported claim workflow update.');
+      return;
+    }
 
-    const { error } = await supabase
-      .from('availability_actions')
-      .update({ meta: nextMeta })
-      .eq('id', id);
+    const res = await fetch('/api/availability/action-workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actionId: id, transition }),
+    });
+    const json = await res.json().catch(() => null);
 
     setClaimSavingId(null);
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to update claim.');
+    if (!res.ok || !json?.ok) {
+      console.error('Failed to update claim workflow:', json);
+      toast.error(json?.error || 'Failed to update claim.');
       return;
     }
 
@@ -974,23 +1076,18 @@ export default function AvailabilityClient() {
 
     setClaimSavingId(id);
 
-    const nextMeta = {
-      ...(ownerMeta(claim) || {}),
-      owner_acknowledged: true,
-      owner_acknowledged_at: new Date().toISOString(),
-      owner_acknowledged_by: sessionUserId,
-    };
-
-    const { error } = await supabase
-      .from('availability_actions')
-      .update({ meta: nextMeta })
-      .eq('id', id);
+    const res = await fetch('/api/availability/action-workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actionId: id, transition: 'acknowledge' }),
+    });
+    const json = await res.json().catch(() => null);
 
     setClaimSavingId(null);
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to acknowledge claim.');
+    if (!res.ok || !json?.ok) {
+      console.error('Failed to acknowledge claim:', json);
+      toast.error(json?.error || 'Failed to acknowledge claim.');
       return;
     }
 
@@ -1103,6 +1200,9 @@ export default function AvailabilityClient() {
 
   const needsAttentionStaleCount = needsAttentionNow.filter((item) => claimAgeState(item.claim) === 'stale').length;
   const needsAttentionAgingCount = needsAttentionNow.filter((item) => claimAgeState(item.claim) === 'aging').length;
+  const allLoadedClaims = Object.values(claimsByBlock).flat();
+  const paymentWaitingCount = allLoadedClaims.filter((claim) => paymentAgeState(claim) === 'waiting').length;
+  const paymentStaleCount = allLoadedClaims.filter((claim) => paymentAgeState(claim) === 'stale').length;
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
@@ -1176,7 +1276,7 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Needs attention now</h2>
             <p className="text-sm opacity-80 mt-1">
-              This pulls aging and stale open claims from every block into one priority queue so the owner stops scanning blind.
+              Aging means open 15m+. Stale means open 1h+. Payment warnings mean checkout started but has not paid.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -1186,6 +1286,16 @@ export default function AvailabilityClient() {
             <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
               Stale {needsAttentionStaleCount}
             </span>
+            {paymentWaitingCount > 0 && (
+              <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                Payment waiting {paymentWaitingCount}
+              </span>
+            )}
+            {paymentStaleCount > 0 && (
+              <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+                Payment stale {paymentStaleCount}
+              </span>
+            )}
           </div>
         </div>
 
@@ -1230,7 +1340,7 @@ export default function AvailabilityClient() {
           <div>
             <h2 className="text-lg font-semibold">Recent claims visibility</h2>
             <p className="text-sm opacity-80 mt-1">
-              Open claims are now flagged as new, aging, or stale so ignored leads stop blending into the pile.
+              Open claims are flagged by age, payment wait, notification result, and owner follow-up state.
             </p>
           </div>
           <div className="text-xs opacity-70">
@@ -1544,10 +1654,14 @@ function AttentionClaimCard(props: {
   const rowId = String(claim.id ?? '').trim();
   const savingThisClaim = claimSavingId === rowId;
   const ageState = claimAgeState(claim);
+  const ageText = relativeClaimAge(claim);
+  const paymentState = paymentAgeState(claim);
+  const paymentHelp = paymentAgeHelpText(paymentState);
   const notifyStatus = String(notifyLog?.status ?? '').trim().toLowerCase();
   const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
   const paymentConfirmed = isPaymentConfirmedClaim(claim);
   const acknowledged = ownerAcknowledged(claim);
+  const contacted = ownerContacted(claim);
   const contact = String(claim.customer_contact ?? '').trim();
 
   return (
@@ -1571,7 +1685,12 @@ function AttentionClaimCard(props: {
             )}
             {paymentConfirmed && (
               <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                CONFIRMED
+                PAYMENT PAID
+              </span>
+            )}
+            {paymentState !== 'none' && (
+              <span className={`text-xs px-2 py-1 rounded-full ${paymentAgeBadgeClass(paymentState)}`}>
+                {paymentAgeLabel(paymentState)}
               </span>
             )}
             {acknowledged && (
@@ -1579,13 +1698,19 @@ function AttentionClaimCard(props: {
                 ACKNOWLEDGED
               </span>
             )}
+            {!contacted && ageState === 'stale' && (
+              <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                NOT CONTACTED
+              </span>
+            )}
           </div>
 
           <div className="mt-2 font-medium">{claimDisplayName(claim)}</div>
 
           <div className="mt-2 text-xs opacity-70 space-y-1">
-            {claim.created_at && <div>When: {fmtDT(claim.created_at)}</div>}
+            {claim.created_at && <div>When: {fmtDT(claim.created_at)}{ageText ? ` (${ageText})` : ''}</div>}
             <div>Age: {claimAgeHelpText(ageState)}</div>
+            {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-600' : 'text-yellow-700'}>{paymentHelp}</div>}
             <div>Action: {shorten(claimPrimaryId(claim), 12)}</div>
             {claim.referral_code && <div>Referral: {String(claim.referral_code)}</div>}
           </div>
@@ -1593,33 +1718,45 @@ function AttentionClaimCard(props: {
 
         <div className="flex flex-wrap gap-2">
           {!paymentConfirmed && !acknowledged && (
-            <button
-              type="button"
-              onClick={() => onConfirmClaim(claim)}
-              disabled={savingThisClaim}
-              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-            >
-              Acknowledge
-            </button>
+            <div>
+              <button
+                type="button"
+                onClick={() => onConfirmClaim(claim)}
+                disabled={savingThisClaim}
+                title="Use this when you have seen the claim and will handle it."
+                className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+              >
+                Acknowledge
+              </button>
+              <div className="mt-1 text-[11px] opacity-60">Seen, not contacted yet.</div>
+            </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => onMarkContacted(claim)}
-            disabled={savingThisClaim}
-            className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-          >
-            Mark contacted
-          </button>
+          <div>
+            <button
+              type="button"
+              onClick={() => onMarkContacted(claim)}
+              disabled={savingThisClaim}
+              title="Use this after you have messaged, called, or spoken to the customer."
+              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+            >
+              Mark contacted
+            </button>
+            <div className="mt-1 text-[11px] opacity-60">Customer has been reached.</div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => onMarkClosed(claim)}
-            disabled={savingThisClaim}
-            className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-          >
-            Close
-          </button>
+          <div>
+            <button
+              type="button"
+              onClick={() => onMarkClosed(claim)}
+              disabled={savingThisClaim}
+              title="Use this when no more action is needed for this claim."
+              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+            >
+              Close
+            </button>
+            <div className="mt-1 text-[11px] opacity-60">Done or no longer needed.</div>
+          </div>
 
           {notifyLog && notifyStatus === 'failed' && (
             <button
@@ -1777,16 +1914,19 @@ function ClaimGroup(props: {
             const id = claimPrimaryId(claim);
             const rowId = String(claim.id ?? '').trim();
             const created = fmtDT(claim.created_at ?? null);
+            const ageText = relativeClaimAge(claim);
             const qty = claimQuantity(claim);
-            const status = claimStatus(claim);
+            const status = claimStatusLabel(claim);
             const channel = String(claim.channel ?? '').trim();
             const referral = String(claim.referral_code ?? '').trim();
             const contact = String(claim.customer_contact ?? '').trim();
             const savingThisClaim = claimSavingId === rowId;
-            const contacted = ownerFlag(claim, 'owner_contacted');
-            const closed = ownerFlag(claim, 'owner_closed');
+            const contacted = ownerContacted(claim);
+            const closed = ownerClosed(claim);
             const acknowledged = ownerAcknowledged(claim);
             const paymentConfirmed = isPaymentConfirmedClaim(claim);
+            const paymentState = paymentAgeState(claim);
+            const paymentHelp = paymentAgeHelpText(paymentState);
             const workflow = claimWorkflowState(claim);
             const ageState = claimAgeState(claim);
             const notifyLog = rowId ? notificationsByActionId[rowId] ?? null : null;
@@ -1814,7 +1954,12 @@ function ClaimGroup(props: {
                   )}
                   {paymentConfirmed && (
                     <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                      CONFIRMED
+                      PAYMENT PAID
+                    </span>
+                  )}
+                  {paymentState !== 'none' && (
+                    <span className={`text-xs px-2 py-1 rounded-full ${paymentAgeBadgeClass(paymentState)}`}>
+                      {paymentAgeLabel(paymentState)}
                     </span>
                   )}
                   {acknowledged && (
@@ -1832,6 +1977,11 @@ function ClaimGroup(props: {
                       CLOSED
                     </span>
                   )}
+                  {!contacted && workflowState === 'open' && ageState === 'stale' && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                      NOT CONTACTED
+                    </span>
+                  )}
                   {notifyLog && (
                     <span className={`text-xs px-2 py-1 rounded-full ${notificationBadgeClass(notifyStatus)}`}>
                       {notificationStatusLabel(notifyStatus)}
@@ -1840,7 +1990,7 @@ function ClaimGroup(props: {
                 </div>
 
                 <div className="mt-2 text-xs opacity-70 space-y-1">
-                  {created && <div>When: {created}</div>}
+                  {created && <div>When: {created}{ageText ? ` (${ageText})` : ''}</div>}
                   {id && <div>Action: {shorten(id, 12)}</div>}
                   {referral && <div>Referral: {referral}</div>}
                   {workflowState === 'open' && (
@@ -1848,6 +1998,7 @@ function ClaimGroup(props: {
                       Age: {claimAgeHelpText(ageState)}
                     </div>
                   )}
+                  {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-600' : 'text-yellow-700'}>{paymentHelp}</div>}
                   {notifyLog && notifyCreatedAt && <div>Notification: {notifyCreatedAt}</div>}
                   {notifyLog && notifyMessageId && <div>Provider message id: {notifyMessageId}</div>}
                   {notifyLog && notifyStatus === 'failed' && (
@@ -1857,36 +2008,48 @@ function ClaimGroup(props: {
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {!paymentConfirmed && !acknowledged && (
-                    <button
-                      type="button"
-                      onClick={() => onConfirmClaim(claim)}
-                      disabled={savingThisClaim}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                    >
-                      Acknowledge
-                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => onConfirmClaim(claim)}
+                        disabled={savingThisClaim}
+                        title="Use this when you have seen the claim and will handle it."
+                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                      >
+                        Acknowledge
+                      </button>
+                      <div className="mt-1 text-[11px] opacity-60">Seen, not contacted yet.</div>
+                    </div>
                   )}
 
                   {!contacted && !closed && (
-                    <button
-                      type="button"
-                      onClick={() => onMarkContacted(claim)}
-                      disabled={savingThisClaim}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                    >
-                      Mark contacted
-                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => onMarkContacted(claim)}
+                        disabled={savingThisClaim}
+                        title="Use this after you have messaged, called, or spoken to the customer."
+                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                      >
+                        Mark contacted
+                      </button>
+                      <div className="mt-1 text-[11px] opacity-60">Customer has been reached.</div>
+                    </div>
                   )}
 
                   {!closed && (
-                    <button
-                      type="button"
-                      onClick={() => onMarkClosed(claim)}
-                      disabled={savingThisClaim}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
-                    >
-                      Close
-                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => onMarkClosed(claim)}
+                        disabled={savingThisClaim}
+                        title="Use this when no more action is needed for this claim."
+                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                      >
+                        Close
+                      </button>
+                      <div className="mt-1 text-[11px] opacity-60">Done or no longer needed.</div>
+                    </div>
                   )}
 
                   {notifyLog && notifyStatus === 'failed' && (
@@ -2053,7 +2216,7 @@ function BlockCard(props: {
                 <div>
                   <div className="text-sm font-medium">Claim workflow</div>
                   <div className="text-xs opacity-70">
-                    Open claims are prioritized by age so neglected leads rise to the top.
+                    Acknowledge = seen. Contacted = customer reached. Close = no more action needed.
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">

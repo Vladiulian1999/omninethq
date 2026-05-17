@@ -27,17 +27,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const actionId =
-      cleanId(body?.actionId) ||
-      cleanId(body?.action_id) ||
-      cleanId(body?.availabilityActionId) ||
-      cleanId(body?.availability_action_id);
+    const publicRef =
+      cleanId(body?.publicRef) ||
+      cleanId(body?.public_ref) ||
+      cleanId(body?.claimRef) ||
+      cleanId(body?.claim_ref);
 
     const customerName = cleanStr(body?.name || body?.customer_name);
     const customerContact = cleanStr(body?.contact || body?.customer_contact);
 
-    if (!actionId) {
-      return NextResponse.json({ error: 'Missing actionId' }, { status: 400 });
+    if (!publicRef) {
+      return NextResponse.json({ error: 'Missing publicRef' }, { status: 400 });
     }
 
     if (!customerName && !customerContact) {
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('availability_actions')
       .select('id, customer_name, customer_contact, meta')
-      .eq('id', actionId)
+      .eq('public_ref', publicRef)
       .maybeSingle();
 
     if (existingError) {
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     const { error: updateError } = await supabaseAdmin
       .from('availability_actions')
       .update(patch)
-      .eq('id', actionId);
+      .eq('id', existing.id);
 
     if (updateError) {
       return NextResponse.json(
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      actionId,
+      publicRef,
       saved: {
         customer_name: customerName || existing.customer_name || null,
         customer_contact: customerContact || existing.customer_contact || null,

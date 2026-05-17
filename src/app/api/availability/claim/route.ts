@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { logOperationalEvent } from '@/lib/operationalEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,55 @@ function normalizeQuantity(v: any) {
 function normalizeMeta(v: any) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
   return v as Record<string, unknown>;
+}
+
+function makePublicRef() {
+  return `clm_${randomBytes(24).toString('base64url')}`;
+}
+
+async function ensurePublicRef(supabase: any, actionId: string) {
+  const { data: existing, error: existingError } = await supabase
+    .from('availability_actions')
+    .select('id, public_ref')
+    .eq('id', actionId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (!existing) throw new Error('Availability action not found.');
+
+  const existingRef = cleanStr(existing.public_ref);
+  if (existingRef) return existingRef;
+
+  console.warn('availability action missing public_ref; generating server fallback.', { actionId });
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = makePublicRef();
+    const { data, error } = await supabase
+      .from('availability_actions')
+      .update({ public_ref: candidate })
+      .eq('id', actionId)
+      .is('public_ref', null)
+      .select('public_ref')
+      .maybeSingle();
+
+    if (!error && data?.public_ref) return cleanStr(data.public_ref);
+
+    if (error && (error as any).code === '23505') {
+      continue;
+    }
+
+    const { data: raced, error: racedError } = await supabase
+      .from('availability_actions')
+      .select('public_ref')
+      .eq('id', actionId)
+      .maybeSingle();
+
+    if (!racedError && raced?.public_ref) return cleanStr(raced.public_ref);
+    if (error) throw error;
+    if (racedError) throw racedError;
+  }
+
+  throw new Error('Could not generate claim reference.');
 }
 
 async function invokeAvailabilityNotify(params: {
@@ -144,16 +195,76 @@ export async function POST(req: NextRequest) {
       return json({ ok: false, error: 'Claim failed (no action_id returned).' }, 500);
     }
 
+    const publicRef = cleanStr((claim as any)?.public_ref) || await ensurePublicRef(supabase, actionId);
+
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .select('id, tag_id')
+      .select('id, tag_id, action_type')
       .eq('id', blockId)
       .maybeSingle();
+
+    let canonicalState: any = null;
+    if (block) {
+      const { data: transitionResult, error: transitionError } = await supabase.rpc('transition_action_claimed', {
+        p_action_id: actionId,
+        p_action_type: cleanStr((block as any).action_type).toLowerCase(),
+      });
+
+      if (transitionError) {
+        console.warn('availability action claimed transition failed.', {
+          actionId,
+          error: transitionError.message,
+        });
+        await logOperationalEvent({
+          actionId,
+          publicRef,
+          eventType: 'claim_transition_failed',
+          actorType: 'system',
+          source: 'api/availability/claim',
+          success: false,
+          correlationId: idempotencyKey,
+          payload: {
+            block_id: blockId,
+            action_type: cleanStr((block as any).action_type).toLowerCase(),
+            error: transitionError.message,
+            code: (transitionError as any)?.code ?? null,
+          },
+        });
+      } else {
+        canonicalState = (transitionResult as any)?.action ?? null;
+        await logOperationalEvent({
+          actionId,
+          publicRef,
+          eventType: 'claim_created',
+          actorType: 'public',
+          source: 'api/availability/claim',
+          success: true,
+          correlationId: idempotencyKey,
+          payload: {
+            block_id: blockId,
+            action_type: cleanStr((block as any).action_type).toLowerCase(),
+            quantity,
+            channel,
+          },
+        });
+      }
+    }
+
+    const claimWithPublicRef = {
+      public_ref: publicRef,
+      action_status:
+        (canonicalState as any)?.action_status ??
+        (claim as any)?.action_status ??
+        (claim as any)?.status ??
+        null,
+      block_id: (claim as any)?.block_id ?? blockId,
+      block_remaining: (claim as any)?.block_remaining ?? null,
+    };
 
     if (blockError || !block) {
       return json({
         ok: true,
-        claim,
+        claim: claimWithPublicRef,
         notification: {
           attempted: false,
           ok: false,
@@ -168,7 +279,7 @@ export async function POST(req: NextRequest) {
     if (!tagId) {
       return json({
         ok: true,
-        claim,
+        claim: claimWithPublicRef,
         notification: {
           attempted: false,
           ok: false,
@@ -197,7 +308,7 @@ export async function POST(req: NextRequest) {
 
     return json({
       ok: true,
-      claim,
+      claim: claimWithPublicRef,
       notification,
     });
   } catch (e: any) {

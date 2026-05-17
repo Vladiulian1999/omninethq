@@ -300,7 +300,7 @@ serve(async (req: Request) => {
       return json({ ok: false, error: 'Availability block not found' }, 404);
     }
 
-    const ownerId = s((blockRow as any).owner_id) || s((blockRow as any).user_id);
+    const ownerId = s((blockRow as any).owner_id);
     const tagId = s((blockRow as any).tag_id) || tagIdFromPayload;
     const blockTitle = s((blockRow as any).title) || 'Availability claim';
     const actionType = s((blockRow as any).action_type) || 'reserve';

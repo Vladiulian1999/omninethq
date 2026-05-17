@@ -5,10 +5,11 @@ import Link from 'next/link'
 export default function Home() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center text-center p-6">
-      <h1 className="text-4xl sm:text-5xl font-bold mb-4">OmniNet</h1>
+      <h1 className="text-4xl sm:text-5xl font-bold mb-4">
+        Stop losing customers between "interested" and "I'll message later."
+      </h1>
       <p className="text-gray-600 max-w-md mb-8">
-        Connect anything in the real world to the internet with a simple QR code.
-        Rent tools, offer help, sell skills, and more.
+        Let people instantly reserve, enquire, claim, or book from a QR code or link - while you track every request in one place.
       </p>
 
       <div className="flex flex-col sm:flex-row gap-4">

@@ -31,7 +31,7 @@ type Props = {
 };
 
 type ClaimConfirmationState = {
-  actionId: string;
+  publicRef: string;
   blockId: string;
   actionType: string;
   title: string | null;
@@ -207,11 +207,11 @@ function loadClaimConfirmation(tagId: string): ClaimConfirmationState | null {
       return null;
     }
 
-    const actionId = String(parsed.actionId ?? '').trim();
+    const publicRef = String(parsed.publicRef ?? parsed.public_ref ?? '').trim();
     const blockId = String(parsed.blockId ?? '').trim();
     const actionType = String(parsed.actionType ?? '').trim();
 
-    if (!actionId || !blockId || !actionType) {
+    if (!publicRef || !blockId || !actionType) {
       sessionStorage.removeItem(key);
       return null;
     }
@@ -226,7 +226,7 @@ function loadClaimConfirmation(tagId: string): ClaimConfirmationState | null {
     }
 
     return {
-      actionId,
+      publicRef,
       blockId,
       actionType,
       title: parsed.title ?? null,
@@ -611,6 +611,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   const isOwner = userId && data?.user_id && userId === data.user_id;
   const ownerId = data?.user_id as string | undefined;
   const EmailAction = <EmailActionProcessor cleanId={cleanId} ownerId={ownerId} />;
+  const claimProofRef = claimConfirmation?.publicRef?.trim() || '';
 
   const getAttrMeta = () => {
     const attr = getLastAttribution(cleanId);
@@ -861,9 +862,9 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
 
     const row = json?.claim;
-    if (!row?.action_id) throw new Error('Claim failed (no action_id returned).');
+    if (!row?.public_ref) throw new Error('Claim failed (no public_ref returned).');
     return row as {
-      action_id: string;
+      public_ref: string;
       action_status: string;
       block_id: string;
       block_remaining: number;
@@ -871,7 +872,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   }
 
   async function saveReserveContactDetails() {
-    if (!claimConfirmation?.actionId) {
+    if (!claimConfirmation?.publicRef) {
       toast.error('Missing claim reference.');
       return;
     }
@@ -888,7 +889,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          actionId: claimConfirmation.actionId,
+          publicRef: claimConfirmation.publicRef,
           name: reserveName.trim(),
           contact: reserveContact.trim(),
         }),
@@ -912,7 +913,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
     }
   }
 
-  async function startCheckoutForBlock(block: AvailabilityBlockRow, actionId: string) {
+  async function startCheckoutForBlock(block: AvailabilityBlockRow, claimRef: string) {
     const refCode = localStorage.getItem('referral_code') || '';
     const attr = getLastAttribution(cleanId);
     const ch = attr?.ch || '';
@@ -928,7 +929,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       meta: {
         ...getAttrMeta(),
         block_id: block.id,
-        availability_action_id: actionId,
+        claim_ref: claimRef,
         action_type: block.action_type,
         price_pence: block.price_pence ?? null,
       },
@@ -944,7 +945,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         ch,
         cv,
         blockId: block.id,
-        availabilityActionId: actionId,
+        claimRef,
       }),
     });
 
@@ -976,7 +977,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       setAvailabilityRefreshKey((k) => k + 1);
 
       const nextConfirmation = {
-        actionId: claim.action_id,
+        publicRef: claim.public_ref,
         blockId: block.id,
         actionType: block.action_type,
         title: block.title ?? null,
@@ -1022,7 +1023,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
       }
 
       if (block.action_type === 'pay' || block.action_type === 'order') {
-        await startCheckoutForBlock(block, claim.action_id);
+        await startCheckoutForBlock(block, claim.public_ref);
         return;
       }
 
@@ -1199,10 +1200,25 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                     <span className="font-medium">Quantity:</span> {claimConfirmation.quantity}
                   </div>
                   <div>
-                    <span className="font-medium">Reference:</span> {claimConfirmation.actionId}
+                    <span className="font-medium">Reference:</span> {claimConfirmation.publicRef}
                   </div>
+                  {claimProofRef ? (
+                    <div>
+                      <span className="font-medium">Durable proof:</span>{' '}
+                      <Link
+                        href={`/claim/${encodeURIComponent(claimProofRef)}`}
+                        className="underline underline-offset-2 hover:text-green-700"
+                      >
+                        View claim confirmation
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-green-900/60">
+                      Claim proof link is not available yet.
+                    </div>
+                  )}
                   <div className="text-xs text-green-900/60 mt-2">
-                    This confirmation is stored on this device for a limited time.
+                    This device stores a convenience copy for a limited time.
                   </div>
                 </div>
 
@@ -1271,6 +1287,15 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                   >
                     Continue booking
                   </button>
+                )}
+
+                {claimProofRef && (
+                  <Link
+                    href={`/claim/${encodeURIComponent(claimProofRef)}`}
+                    className="inline-flex h-10 items-center rounded-xl bg-green-900 px-4 text-sm text-white transition hover:bg-green-800"
+                  >
+                    View claim
+                  </Link>
                 )}
 
                 <button

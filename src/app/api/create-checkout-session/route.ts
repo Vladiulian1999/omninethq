@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { logOperationalEvent } from '@/lib/operationalEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,52 @@ function normalizeCurrency(v: unknown) {
   return currency || 'gbp';
 }
 
+function makePublicRef() {
+  return `clm_${randomBytes(24).toString('base64url')}`;
+}
+
+async function ensurePublicRef(supabase: any, actionId: string) {
+  const { data: existing, error: existingError } = await supabase
+    .from('availability_actions')
+    .select('id, public_ref')
+    .eq('id', actionId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (!existing) throw new Error('Availability action not found.');
+
+  const existingRef = cleanStr(existing.public_ref);
+  if (existingRef) return existingRef;
+
+  console.warn('availability checkout action missing public_ref; generating server fallback.', { actionId });
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = makePublicRef();
+    const { data, error } = await supabase
+      .from('availability_actions')
+      .update({ public_ref: candidate })
+      .eq('id', actionId)
+      .is('public_ref', null)
+      .select('public_ref')
+      .maybeSingle();
+
+    if (!error && data?.public_ref) return cleanStr(data.public_ref);
+    if (error && (error as any).code === '23505') continue;
+
+    const { data: raced, error: racedError } = await supabase
+      .from('availability_actions')
+      .select('public_ref')
+      .eq('id', actionId)
+      .maybeSingle();
+
+    if (!racedError && raced?.public_ref) return cleanStr(raced.public_ref);
+    if (error) throw error;
+    if (racedError) throw racedError;
+  }
+
+  throw new Error('Could not generate claim reference.');
+}
+
 export async function POST(req: NextRequest) {
   let body: any = null;
 
@@ -57,26 +105,27 @@ export async function POST(req: NextRequest) {
       cleanId(body?.block_id) ||
       cleanId(body?.availabilityBlockId);
 
-    const requestAvailabilityActionId =
-      cleanId(body?.availabilityActionId) ||
-      cleanId(body?.availability_action_id) ||
-      cleanId(body?.actionId);
+    const requestClaimRef =
+      cleanId(body?.claimRef) ||
+      cleanId(body?.claim_ref) ||
+      cleanId(body?.publicRef) ||
+      cleanId(body?.public_ref);
 
     const refCode = cleanStr(body?.refCode);
     const ch = cleanStr(body?.ch).toLowerCase(); // whatsapp/sms/copy/system
     const cv = cleanStr(body?.cv).toUpperCase(); // A/B etc
 
     const hasBlockId = Boolean(requestBlockId);
-    const hasAvailabilityActionId = Boolean(requestAvailabilityActionId);
+    const hasClaimRef = Boolean(requestClaimRef);
 
-    if (hasBlockId !== hasAvailabilityActionId) {
+    if (hasBlockId !== hasClaimRef) {
       return jsonError(400, 'CHECKOUT_LINKAGE_INCOMPLETE', {
-        message: 'Availability checkout requires both blockId and availabilityActionId.',
+        message: 'Availability checkout requires both blockId and claimRef.',
       });
     }
 
     const supabase = getServiceSupabase();
-    const isAvailabilityCheckout = hasBlockId && hasAvailabilityActionId;
+    const isAvailabilityCheckout = hasBlockId && hasClaimRef;
 
     let resolvedTagId = requestTagId;
     let resolvedBlockId = '';
@@ -84,12 +133,13 @@ export async function POST(req: NextRequest) {
     let amount = 500;
     let currency = 'gbp';
     let productName = requestTagId ? `Support Tag ${requestTagId}` : 'Support Tag';
+    let resolvedClaimRef = '';
 
     if (isAvailabilityCheckout) {
       const { data: action, error: actionError } = await supabase
         .from('availability_actions')
-        .select('id, block_id, tag_id, stripe_checkout_session_id, stripe_payment_intent_id')
-        .eq('id', requestAvailabilityActionId)
+        .select('id, public_ref, block_id, tag_id, stripe_checkout_session_id, stripe_payment_intent_id, action_status, payment_status, owner_status')
+        .eq('public_ref', requestClaimRef)
         .maybeSingle();
 
       if (actionError) {
@@ -152,6 +202,7 @@ export async function POST(req: NextRequest) {
       resolvedTagId = serverTagId;
       resolvedBlockId = serverBlockId;
       resolvedAvailabilityActionId = cleanId((action as any).id);
+      resolvedClaimRef = cleanStr((action as any).public_ref) || await ensurePublicRef(supabase, resolvedAvailabilityActionId);
       amount = pricePence;
       currency = normalizeCurrency((block as any).currency);
       productName = cleanStr((block as any).title) || `Support Tag ${resolvedTagId} (Block)`;
@@ -193,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     // Helpful for UI/debugging (webhook is still the truth)
     if (resolvedBlockId) successUrl.searchParams.set('block', resolvedBlockId);
-    if (resolvedAvailabilityActionId) successUrl.searchParams.set('aa', resolvedAvailabilityActionId);
+    if (resolvedClaimRef) successUrl.searchParams.set('claim', resolvedClaimRef);
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -227,6 +278,57 @@ export async function POST(req: NextRequest) {
         availabilityActionId: (resolvedAvailabilityActionId || '').toString(),
       },
     });
+
+    if (isAvailabilityCheckout && resolvedAvailabilityActionId) {
+      const { data: transitionResult, error: transitionError } = await supabase.rpc('transition_checkout_created', {
+        p_action_id: resolvedAvailabilityActionId,
+        p_stripe_checkout_session_id: session.id,
+      });
+
+      if (transitionError) {
+        console.warn('availability checkout canonical update failed.', {
+          actionId: resolvedAvailabilityActionId,
+          error: transitionError.message,
+        });
+        await logOperationalEvent({
+          actionId: resolvedAvailabilityActionId,
+          publicRef: resolvedClaimRef,
+          eventType: 'checkout_transition_failed',
+          actorType: 'public',
+          source: 'api/create-checkout-session',
+          success: false,
+          correlationId: session.id,
+          payload: {
+            block_id: resolvedBlockId,
+            tag_id: resolvedTagId,
+            stripe_checkout_session_id: session.id,
+            error: transitionError.message,
+            code: (transitionError as any)?.code ?? null,
+          },
+        });
+        const code = String((transitionError as any)?.code ?? '');
+        const status = code === '23514' || code === '23505' ? 409 : code === 'P0002' ? 404 : 500;
+        return jsonError(status, 'AVAILABILITY_CHECKOUT_TRANSITION_FAILED', {
+          message: transitionError.message,
+        });
+      }
+
+      await logOperationalEvent({
+        actionId: resolvedAvailabilityActionId,
+        publicRef: resolvedClaimRef,
+        eventType: 'checkout_created',
+        actorType: 'public',
+        source: 'api/create-checkout-session',
+        success: true,
+        correlationId: session.id,
+        payload: {
+          block_id: resolvedBlockId,
+          tag_id: resolvedTagId,
+          stripe_checkout_session_id: session.id,
+          idempotent: Boolean((transitionResult as any)?.idempotent),
+        },
+      });
+    }
 
     return NextResponse.json({ id: session.id, url: session.url });
   } catch (e: any) {

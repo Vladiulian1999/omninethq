@@ -53,11 +53,13 @@ export default function SuccessClient({
   tagFromQS,
   chFromQS,
   cvFromQS,
+  claimRef,
 }: {
   sessionId: string;
   tagFromQS?: string;
   chFromQS?: string;
   cvFromQS?: string;
+  claimRef?: string;
 }) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [info, setInfo] = useState<SuccessInfo | null>(null);
@@ -115,6 +117,10 @@ export default function SuccessClient({
   const tagUrl = useMemo(() => {
     return tagIdClean ? `${origin}/tag/${encodeURIComponent(tagIdClean)}` : `${origin}/explore`;
   }, [tagIdClean, origin]);
+
+  const claimRefClean = useMemo(() => {
+    return cleanId((claimRef || '').toString());
+  }, [claimRef]);
 
   // Fetch tag title
   useEffect(() => {
@@ -289,6 +295,14 @@ export default function SuccessClient({
           )}
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            {claimRefClean && (
+              <Link
+                href={`/claim/${encodeURIComponent(claimRefClean)}`}
+                className="border rounded-xl px-4 py-2 hover:bg-gray-50"
+              >
+                View claim confirmation
+              </Link>
+            )}
             <Link href={tagUrl} className="border rounded-xl px-4 py-2 hover:bg-gray-50">
               View the tag
             </Link>
