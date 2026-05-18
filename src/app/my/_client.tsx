@@ -84,15 +84,17 @@ export default function MyTagsClient() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6 text-center">My Tags</h1>
+    <div className="omni-page-bg relative min-h-screen overflow-hidden px-4 py-8 text-slate-100">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
+      <div className="relative z-10 mx-auto max-w-3xl">
+      <h1 className="mb-6 text-center text-3xl font-bold text-white">My Tags</h1>
 
       {loading ? (
-        <p className="text-center text-gray-500">Loading...</p>
+        <p className="text-center text-slate-400">Loading...</p>
       ) : tags.length === 0 ? (
-        <p className="text-center text-gray-600">
+        <p className="omni-panel rounded-2xl p-6 text-center text-slate-300">
           You haven&apos;t created any tags yet.{` `}
-          <Link href="/new" className="text-blue-600 hover:underline">
+          <Link href="/new" className="font-medium text-cyan-100 underline underline-offset-2">
             Create one now.
           </Link>
         </p>
@@ -101,16 +103,16 @@ export default function MyTagsClient() {
           {tags.map((tag) => (
             <li
               key={tag.id}
-              className="border p-4 rounded shadow-sm bg-white hover:bg-gray-50"
+              className="omni-card rounded-2xl p-4 transition hover:border-cyan-300/20 hover:bg-white/[0.085]"
             >
               <Link href={`/tag/${tag.id}`}>
-                <h2 className="text-xl font-semibold">{tag.title}</h2>
+                <h2 className="text-xl font-semibold text-white">{tag.title}</h2>
               </Link>
-              <p className="text-gray-600">{tag.description}</p>
-              <p className="text-sm text-gray-400 mt-1">Category: {tag.category}</p>
-              <p className="text-xs text-gray-400">ID: {tag.id}</p>
+              <p className="text-slate-300">{tag.description}</p>
+              <p className="mt-1 text-sm text-slate-400">Category: {tag.category}</p>
+              <p className="text-xs text-slate-500">ID: {tag.id}</p>
 
-              <div className="text-xs text-gray-600 mt-2 flex gap-4">
+              <div className="mt-2 flex gap-4 text-xs text-slate-300">
                 <span>Views: {tag.views ?? 0}</span>
                 <span>Rating: {(tag.average_rating ?? 0).toFixed(1)}</span>
                 <span>Reviews: {tag.review_count ?? 0}</span>
@@ -119,14 +121,14 @@ export default function MyTagsClient() {
               <div className="mt-3 flex gap-3">
                 <Link
                   href={`/edit/${tag.id}`}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="text-sm font-medium text-cyan-100 hover:underline"
                 >
                   Edit
                 </Link>
                 <button
                   onClick={() => handleDelete(tag.id)}
                   disabled={deletingId === tag.id}
-                  className="text-sm text-red-600 hover:underline"
+                  className="text-sm font-medium text-red-200 hover:underline disabled:opacity-50"
                 >
                   {deletingId === tag.id ? 'Deleting...' : 'Delete'}
                 </button>
@@ -135,6 +137,7 @@ export default function MyTagsClient() {
           ))}
         </ul>
       )}
+      </div>
     </div>
   )
 }
