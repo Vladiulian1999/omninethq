@@ -1101,7 +1101,6 @@ export default function TagClient({ tagId, scanChartData }: Props) {
   return (
     <div className="min-h-screen bg-amber-50/60">
       <Toaster position="top-center" />
-      <A2HSNudge />
       {EmailAction}
 
       <div className="mx-auto max-w-5xl px-4 py-8">
