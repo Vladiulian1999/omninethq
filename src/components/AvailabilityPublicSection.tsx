@@ -196,8 +196,8 @@ export default function AvailabilityPublicSection({
 
   if (loading) {
     return (
-      <div className="mt-6 rounded-2xl border p-4">
-        <div className="text-sm opacity-70">Loading availability...</div>
+      <div className="omni-card mt-6 rounded-2xl p-4">
+        <div className="text-sm text-slate-300">Loading availability...</div>
       </div>
     );
   }
@@ -214,29 +214,35 @@ export default function AvailabilityPublicSection({
     const money = isPaidAction(b.action_type) ? formatMoney(b.price_pence ?? null, b.currency || 'GBP') : null;
 
     return (
-      <div className="rounded-2xl border p-4 bg-white shadow-sm text-left">
+      <div className="omni-card rounded-2xl p-4 text-left">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="font-semibold">{b.title}</div>
-            {b.description && <div className="text-sm opacity-80 mt-1">{b.description}</div>}
+            <div className="font-semibold text-white">{b.title}</div>
+            {b.description && <div className="mt-1 text-sm text-slate-300">{b.description}</div>}
           </div>
 
-          {money && <div className="text-sm font-semibold whitespace-nowrap">{money}</div>}
+          {money && <div className="whitespace-nowrap text-sm font-semibold text-cyan-100">{money}</div>}
         </div>
 
         {(start || end) && (
-          <div className="text-xs opacity-70 mt-2">
+          <div className="mt-2 text-xs text-slate-400">
             {start || 'TBA'}
             {end ? ` to ${end}` : ''}
           </div>
         )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className={`text-xs px-2 py-1 rounded-full border ${low ? 'border-black' : ''}`}>{cap}</div>
+          <div
+            className={`rounded-full border px-2 py-1 text-xs ${
+              low ? 'border-cyan-300/40 text-cyan-100' : 'border-white/10 text-slate-300'
+            }`}
+          >
+            {cap}
+          </div>
 
           <button
             onClick={() => onAction(b)}
-            className="px-4 py-2 rounded-2xl bg-black text-white hover:bg-gray-800 transition text-sm"
+            className="omni-button-primary rounded-2xl px-4 py-2 text-sm"
           >
             {labelFor(b)}
           </button>
@@ -247,16 +253,16 @@ export default function AvailabilityPublicSection({
 
   const SoldOutCard = ({ b }: { b: AvailabilityBlockRow }) => {
     return (
-      <div className="rounded-2xl border p-4 bg-white text-left">
-        <div className="font-semibold">{b.title}</div>
-        <div className="text-sm opacity-70 mt-1">{minutesAgoText(b.last_taken_at)}</div>
+      <div className="omni-card rounded-2xl p-4 text-left opacity-80">
+        <div className="font-semibold text-white">{b.title}</div>
+        <div className="mt-1 text-sm text-slate-400">{minutesAgoText(b.last_taken_at)}</div>
       </div>
     );
   };
 
   return (
-    <div className="mt-6 rounded-2xl border p-4 bg-white">
-      <div className="text-sm font-semibold opacity-80">Available now</div>
+    <div className="omni-card mt-6 rounded-2xl p-4">
+      <div className="text-sm font-semibold text-slate-100">Available now</div>
 
       {always.length > 0 && (
         <div className="mt-2 grid gap-3">
@@ -268,7 +274,7 @@ export default function AvailabilityPublicSection({
 
       {upcoming.length > 0 && (
         <div className="mt-6">
-          <div className="text-sm font-semibold opacity-80">Next</div>
+          <div className="text-sm font-semibold text-slate-100">Next</div>
           <div className="mt-2 grid gap-3">
             {upcoming.map((b) => (
               <Card key={b.id} b={b} />
@@ -279,8 +285,8 @@ export default function AvailabilityPublicSection({
 
       {soldOutBlocks.length > 0 && (
         <div className="mt-6">
-          <div className="text-sm font-semibold opacity-80">Just missed</div>
-          <div className="text-xs opacity-70 mt-1">Someone else got there first.</div>
+          <div className="text-sm font-semibold text-slate-100">Just missed</div>
+          <div className="mt-1 text-xs text-slate-400">Someone else got there first.</div>
           <div className="mt-2 grid gap-3">
             {soldOutBlocks.map((b) => (
               <SoldOutCard key={b.id} b={b} />
@@ -291,4 +297,3 @@ export default function AvailabilityPublicSection({
     </div>
   );
 }
-

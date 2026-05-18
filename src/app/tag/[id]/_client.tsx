@@ -272,13 +272,13 @@ function A2HSNudge() {
   if (!show) return null;
 
   return (
-    <div className="fixed bottom-4 inset-x-4 z-50 bg-white border shadow-lg rounded-2xl p-4 flex items-center justify-between">
-      <span className="text-sm">Add OmniNet to your home screen for 1-tap access.</span>
+    <div className="fixed inset-x-4 bottom-4 z-50 flex items-center justify-between rounded-2xl border border-white/10 bg-[#08101b]/95 p-4 text-white shadow-2xl backdrop-blur-xl">
+      <span className="text-sm text-slate-200">Add OmniNet to your home screen for 1-tap access.</span>
       <div className="flex gap-2">
-        <button className="px-3 py-1 border rounded-xl" onClick={() => setShow(false)}>
+        <button className="rounded-xl border border-white/10 px-3 py-1 text-sm text-slate-200 transition hover:bg-white/10" onClick={() => setShow(false)}>
           Not now
         </button>
-        <button className="px-3 py-1 border rounded-xl" onClick={install}>
+        <button className="rounded-xl border border-cyan-300/30 bg-cyan-300/15 px-3 py-1 text-sm text-cyan-100 transition hover:bg-cyan-300/20" onClick={install}>
           Add
         </button>
       </div>
@@ -1074,7 +1074,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   if (error || !data)
     return (
-      <div className="p-10 text-center text-red-600">
+      <div className="omni-page-bg min-h-screen p-10 text-center text-red-200">
         <h1 className="text-2xl font-bold">Tag Not Found</h1>
         <p>ID: {cleanId}</p>
       </div>
@@ -1082,11 +1082,11 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const getBadge = (cat: string) =>
     ({
-      rent: 'bg-blue-100 text-blue-800',
-      sell: 'bg-green-100 text-green-800',
-      teach: 'bg-yellow-100 text-yellow-800',
-      help: 'bg-purple-100 text-purple-800',
-    }[cat] || 'bg-gray-100 text-gray-800');
+      rent: 'border border-blue-300/20 bg-blue-300/10 text-blue-100',
+      sell: 'border border-emerald-300/20 bg-emerald-300/10 text-emerald-100',
+      teach: 'border border-yellow-300/20 bg-yellow-300/10 text-yellow-100',
+      help: 'border border-purple-300/20 bg-purple-300/10 text-purple-100',
+    }[cat] || 'border border-slate-300/20 bg-slate-300/10 text-slate-200');
 
   const defaultChannels: ShareChannel[] = ['whatsapp', 'sms', 'copy', 'system'];
   const orderedShareChannels: ShareChannel[] = winnerChannel
@@ -1095,20 +1095,21 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
   const tagUrlForQR = buildShareUrl(baseTagUrl, 'copy', shareVariant);
 
-  const shareButtonBase = 'h-10 px-4 rounded-xl border border-amber-200 bg-white shadow-sm text-sm text-amber-900 hover:bg-amber-50 transition';
-  const shareButtonWinner = 'border-amber-900 bg-amber-900 text-white hover:bg-amber-800';
+  const shareButtonBase = 'h-10 px-4 rounded-xl border border-white/10 bg-white/[0.06] text-sm text-slate-100 shadow-sm transition hover:bg-white/[0.1]';
+  const shareButtonWinner = 'border-cyan-300/30 bg-cyan-300/15 text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.12)]';
 
   return (
-    <div className="min-h-screen bg-amber-50/60">
+    <div className="omni-page-bg relative min-h-screen overflow-hidden">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
       <Toaster position="top-center" />
       {EmailAction}
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="relative z-10 mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6 flex items-center justify-between">
-          <BackButton />
+          <BackButton className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white" />
         </div>
 
-        <div className="rounded-3xl border border-amber-100 bg-white/90 p-6 shadow-sm md:p-8">
+        <div className="omni-panel rounded-3xl p-6 md:p-8">
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <Link href={`/category/${data.category}`}>
@@ -1121,26 +1122,26 @@ export default function TagClient({ tagId, scanChartData }: Props) {
               )}
             </div>
 
-            <h1 className="text-3xl font-semibold leading-tight text-amber-950 md:text-4xl">
+            <h1 className="text-3xl font-semibold leading-tight text-white md:text-4xl">
               {data.title}
             </h1>
 
             {data.description ? (
-              <p className="text-base leading-relaxed text-amber-900/70">
+              <p className="text-base leading-relaxed text-slate-300">
                 {data.description}
               </p>
             ) : null}
 
             <div className="space-y-1">
-              <div className="text-lg font-semibold text-amber-950">
+              <div className="text-lg font-semibold text-white">
                 You're seeing live availability.
               </div>
-              <div className="text-sm text-amber-900/70">
+              <div className="text-sm text-slate-400">
                 When it's gone, it disappears.
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-4 text-sm text-amber-900/70">
+            <div className="flex flex-wrap gap-4 text-sm text-slate-400">
               <span>Tag ID: {cleanId}</span>
               <span>{scanCount} scans</span>
               <span>{viewCount} views</span>
@@ -1149,7 +1150,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                className="h-11 px-5 rounded-2xl border border-amber-200 bg-amber-50 text-sm text-amber-900"
+                className="h-11 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-5 text-sm text-cyan-100"
                 disabled
                 aria-disabled="true"
               >
@@ -1161,7 +1162,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
 
         <section className="mt-10">
           <div className="mb-4">
-            <h2 className="text-xl font-semibold text-amber-950">Availability</h2>
+            <h2 className="text-xl font-semibold text-white">Availability</h2>
           </div>
           <AvailabilityPublicSection
             tagId={cleanId}
@@ -1173,19 +1174,19 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         {claimConfirmation && (
           <section
             ref={claimConfirmationRef}
-            className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm"
+            className="mt-6 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-5 shadow-sm backdrop-blur"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="text-sm font-medium text-green-800">Confirmation</div>
-                <h3 className="mt-1 text-xl font-semibold text-green-900">
+                <div className="text-sm font-medium text-emerald-200">Confirmation</div>
+                <h3 className="mt-1 text-xl font-semibold text-white">
                   {confirmationHeading(claimConfirmation.actionType)}
                 </h3>
-                <p className="mt-2 text-sm text-green-900/80">
+                <p className="mt-2 text-sm text-emerald-100/85">
                   {confirmationBody(claimConfirmation.actionType)}
                 </p>
 
-                <div className="mt-4 space-y-1 text-sm text-green-900/80">
+                <div className="mt-4 space-y-1 text-sm text-emerald-100/85">
                   {claimConfirmation.title && (
                     <div>
                       <span className="font-medium">Availability:</span> {claimConfirmation.title}
@@ -1206,39 +1207,39 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                       <span className="font-medium">Durable proof:</span>{' '}
                       <Link
                         href={`/claim/${encodeURIComponent(claimProofRef)}`}
-                        className="underline underline-offset-2 hover:text-green-700"
+                        className="underline underline-offset-2 hover:text-white"
                       >
                         View claim confirmation
                       </Link>
                     </div>
                   ) : (
-                    <div className="text-xs text-green-900/60">
+                    <div className="text-xs text-emerald-100/60">
                       Claim proof link is not available yet.
                     </div>
                   )}
-                  <div className="text-xs text-green-900/60 mt-2">
+                  <div className="mt-2 text-xs text-emerald-100/60">
                     This device stores a convenience copy for a limited time.
                   </div>
                 </div>
 
                 {claimConfirmation.actionType === 'book' && (
-                  <div className="mt-4 text-sm font-medium text-green-900">
+                  <div className="mt-4 text-sm font-medium text-emerald-100">
                     Continue below to complete your booking request.
                   </div>
                 )}
 
                 {claimConfirmation.actionType === 'reserve' && (
-                  <div className="mt-4 text-sm font-medium text-green-900">
+                  <div className="mt-4 text-sm font-medium text-emerald-100">
                     Keep this page open or show it to staff if needed.
                   </div>
                 )}
 
                 {claimConfirmation.actionType === 'reserve' && (
-                  <div className="mt-4 rounded-xl border border-green-200 bg-white p-4">
-                    <div className="text-sm font-medium text-green-900">
+                  <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.06] p-4">
+                    <div className="text-sm font-medium text-white">
                       Add your details for easier follow-up
                     </div>
-                    <p className="mt-1 text-xs text-green-900/70">
+                    <p className="mt-1 text-xs text-slate-300">
                       Optional. This helps the owner contact you if needed.
                     </p>
 
@@ -1247,14 +1248,14 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                         value={reserveName}
                         onChange={(e) => setReserveName(e.target.value)}
                         placeholder="Your name (optional)"
-                        className="w-full rounded-xl border border-green-200 bg-white p-2 text-sm"
+                        className="omni-input w-full rounded-xl p-2 text-sm"
                         disabled={reserveContactSaving || reserveContactSaved}
                       />
                       <input
                         value={reserveContact}
                         onChange={(e) => setReserveContact(e.target.value)}
                         placeholder="Phone or contact (optional)"
-                        className="w-full rounded-xl border border-green-200 bg-white p-2 text-sm"
+                        className="omni-input w-full rounded-xl p-2 text-sm"
                         disabled={reserveContactSaving || reserveContactSaved}
                       />
                     </div>
@@ -1264,7 +1265,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                         type="button"
                         onClick={saveReserveContactDetails}
                         disabled={reserveContactSaving || reserveContactSaved}
-                        className="h-10 px-4 rounded-xl bg-green-900 text-white hover:bg-green-800 transition text-sm disabled:opacity-50"
+                        className="omni-button-primary h-10 rounded-xl px-4 text-sm disabled:opacity-50"
                       >
                         {reserveContactSaved
                           ? 'Details saved'
@@ -1282,7 +1283,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                   <button
                     type="button"
                     onClick={() => document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' })}
-                    className="h-10 px-4 rounded-xl bg-green-900 text-white hover:bg-green-800 transition text-sm"
+                    className="omni-button-primary h-10 rounded-xl px-4 text-sm"
                   >
                     Continue booking
                   </button>
@@ -1291,7 +1292,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                 {claimProofRef && (
                   <Link
                     href={`/claim/${encodeURIComponent(claimProofRef)}`}
-                    className="inline-flex h-10 items-center rounded-xl bg-green-900 px-4 text-sm text-white transition hover:bg-green-800"
+                    className="omni-button-primary inline-flex h-10 items-center rounded-xl px-4 text-sm"
                   >
                     View claim
                   </Link>
@@ -1306,7 +1307,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                     setReserveContact('');
                     setReserveContactSaved(false);
                   }}
-                  className="h-10 px-4 rounded-xl border border-green-300 bg-white text-sm text-green-900 hover:bg-green-100 transition"
+                  className="omni-button-secondary h-10 rounded-xl px-4 text-sm"
                 >
                   Dismiss
                 </button>
@@ -1316,18 +1317,18 @@ export default function TagClient({ tagId, scanChartData }: Props) {
         )}
 
         <section className="mt-10 grid gap-6 md:grid-cols-[320px_1fr]">
-          <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
-            <div className="text-sm font-medium text-amber-950">QR code</div>
-            <div ref={qrRef} className="mt-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-100">
+          <div className="omni-card rounded-2xl p-5">
+            <div className="text-sm font-medium text-white">QR code</div>
+            <div ref={qrRef} className="mt-3 rounded-xl bg-white p-3 ring-1 ring-white/10">
               <QRCode value={tagUrlForQR} size={180} level="H" />
             </div>
-            <p className="mt-3 text-xs text-amber-900/60">
+            <p className="mt-3 text-xs text-slate-400">
               Scan this QR to view this tag instantly
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 onClick={handleDownload}
-                className="h-10 px-4 rounded-xl bg-amber-900 text-white shadow-sm hover:bg-amber-800 transition text-sm"
+                className="omni-button-primary h-10 rounded-xl px-4 text-sm"
               >
                 Download QR
               </button>
@@ -1335,21 +1336,21 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                 href={`/tag/${encodeURIComponent(cleanId)}/print`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="h-10 px-4 rounded-xl border border-amber-200 bg-white text-sm text-amber-900 shadow-sm hover:bg-amber-50 transition"
+                className="omni-button-secondary h-10 rounded-xl px-4 text-sm"
               >
                 Print QR
               </Link>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+          <div className="omni-card rounded-2xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-amber-950">Share</div>
-                <div className="text-xs text-amber-900/60">Choose a channel</div>
+                <div className="text-sm font-medium text-white">Share</div>
+                <div className="text-xs text-slate-400">Choose a channel</div>
               </div>
               {winnerChannel && (
-                <div className="text-xs text-amber-900/70 border border-amber-100 rounded-2xl px-3 py-2 bg-amber-50">
+                <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100">
                   Most successful via <span className="font-semibold">{labelForChannel(winnerChannel)}</span>
                 </div>
               )}
@@ -1359,7 +1360,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
               {isOwner && (
                 <button
                   onClick={() => router.push(`/tag/${encodeURIComponent(cleanId)}/availability`)}
-                  className="h-10 px-4 rounded-xl bg-amber-900 text-white shadow-sm hover:bg-amber-800 transition text-sm"
+                  className="omni-button-primary h-10 rounded-xl px-4 text-sm"
                   title="Owner only"
                 >
                   Manage availability
@@ -1391,7 +1392,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
               })}
             </div>
 
-            <div className="mt-3 text-[11px] text-amber-900/60">
+            <div className="mt-3 text-[11px] text-slate-500">
               Share copy test: <span className="font-mono">{SHARE_COPY_EXP_ID}</span> variant{' '}
               <span className="font-mono">{shareVariant}</span>
             </div>
@@ -1402,26 +1403,26 @@ export default function TagClient({ tagId, scanChartData }: Props) {
           <ScanAnalytics data={scanChartData} />
         </section>
 
-        <section className="mt-10 rounded-2xl border border-amber-100 bg-white p-6 shadow-sm" id="booking-section">
-          <h2 className="text-xl font-semibold text-amber-950 mb-4">Booking</h2>
+        <section className="omni-card mt-10 rounded-2xl p-6" id="booking-section">
+          <h2 className="mb-4 text-xl font-semibold text-white">Booking</h2>
           <BookingRequestForm tagId={cleanId} enabled={!!data.bookings_enabled} />
           {isOwner && <BookingRequestsList tagId={cleanId} ownerId={data.user_id} />}
         </section>
 
-        <section className="mt-10 rounded-2xl border border-amber-100 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-amber-950 mb-4">Feedback</h2>
+        <section className="omni-card mt-10 rounded-2xl p-6">
+          <h2 className="mb-4 text-xl font-semibold text-white">Feedback</h2>
 
           {averageRating && (
-            <p className="text-sm text-amber-900/70 mb-3">
+            <p className="mb-3 text-sm text-slate-300">
               Average Rating: {averageRating} ({feedback.length} reviews)
             </p>
           )}
 
           <ul className="space-y-4 mb-6">
             {feedback.map((f) => (
-              <li key={f.id} className="border border-amber-100 p-3 rounded-xl bg-white shadow-sm">
+              <li key={f.id} className="rounded-xl border border-white/10 bg-white/[0.045] p-3 shadow-sm">
                 <div className="flex justify-between items-center mb-1">
-                  <p className="text-sm text-amber-900">
+                  <p className="text-sm text-slate-200">
                     Rating: {f.rating} by {f.name}
                   </p>
                   {isOwner && (
@@ -1430,27 +1431,27 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                     </button>
                   )}
                 </div>
-                <p className="text-sm text-amber-900/80">{f.message}</p>
+                <p className="text-sm text-slate-300">{f.message}</p>
               </li>
             ))}
           </ul>
 
           <form onSubmit={handleSubmitFeedback} className="space-y-3">
             <input
-              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              className="omni-input w-full rounded-xl p-2 text-sm"
               placeholder="Your name (optional)"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
             <textarea
-              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              className="omni-input w-full rounded-xl p-2 text-sm"
               placeholder="Your comment..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               required
             />
             <select
-              className="w-full rounded-xl border border-amber-200 bg-white p-2 text-sm"
+              className="omni-input w-full rounded-xl p-2 text-sm"
               value={rating}
               onChange={(e) => {
                 const v = e.target.value;
@@ -1465,13 +1466,13 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                 </option>
               ))}
             </select>
-            <button type="submit" className="h-10 px-4 rounded-xl bg-amber-900 text-white hover:bg-amber-800">
+            <button type="submit" className="omni-button-primary h-10 rounded-xl px-4">
               Submit Feedback
             </button>
           </form>
         </section>
 
-        <div className="mt-8 text-xs text-amber-900/60">This page updates in real time.</div>
+        <div className="mt-8 text-xs text-slate-500">This page updates in real time.</div>
       </div>
     </div>
   );

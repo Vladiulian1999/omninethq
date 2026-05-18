@@ -158,20 +158,22 @@ export default function NewTagClient() {
   }
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-6">
-      <BackButton />
+    <div className="omni-page-bg relative min-h-screen overflow-hidden px-4 py-8 text-white">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
+      <div className="relative z-10 mx-auto max-w-xl">
+      <BackButton className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white" />
 
-      <h1 className="text-3xl font-bold mb-6 text-center">
+      <h1 className="mb-6 mt-4 text-center text-3xl font-bold text-white">
         Create a New OmniTag
       </h1>
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-4 bg-white p-4 rounded shadow"
+        className="omni-panel space-y-4 rounded-2xl p-4"
       >
         <div className="flex gap-2">
           <input
-            className="w-full border p-2 rounded"
+            className="omni-input w-full rounded p-2"
             placeholder="Unique ID"
             value={id}
             onChange={(e) => setId(e.target.value)}
@@ -180,14 +182,14 @@ export default function NewTagClient() {
           <button
             type="button"
             onClick={() => setId(generateId())}
-            className="px-3 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300"
+            className="omni-button-secondary rounded px-3 py-2 text-sm"
           >
             ♻️
           </button>
         </div>
 
         <input
-          className="w-full border p-2 rounded"
+          className="omni-input w-full rounded p-2"
           placeholder="Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -195,7 +197,7 @@ export default function NewTagClient() {
         />
 
         <textarea
-          className="w-full border p-2 rounded"
+          className="omni-input w-full rounded p-2"
           placeholder="Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -205,7 +207,7 @@ export default function NewTagClient() {
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="w-full border p-2 rounded"
+          className="omni-input w-full rounded p-2"
         >
           <option value="rent">🪜 Rent</option>
           <option value="help">🤝 Help</option>
@@ -216,13 +218,14 @@ export default function NewTagClient() {
         <button
           type="submit"
           disabled={loading}
-          className="bg-black text-white w-full px-4 py-2 rounded hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="omni-button-primary w-full rounded px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? 'Creating...' : 'Create Tag'}
         </button>
 
-        {error && <p className="text-red-500 text-center">{error}</p>}
+        {error && <p className="text-center text-red-200">{error}</p>}
       </form>
+      </div>
     </div>
   )
 }

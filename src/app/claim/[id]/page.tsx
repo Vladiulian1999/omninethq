@@ -75,18 +75,21 @@ function label(v: string | null | undefined, fallback = 'Not available') {
 
 function ClaimNotFound() {
   return (
-    <main className="mx-auto max-w-2xl p-6 sm:p-8">
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Claim not found</h1>
-        <p className="mt-2 text-sm text-gray-600">
+    <main className="omni-page-bg relative min-h-screen overflow-hidden px-4 py-8 text-white">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
+      <div className="relative z-10 mx-auto max-w-2xl">
+      <div className="omni-panel rounded-2xl p-6">
+        <h1 className="text-2xl font-semibold text-white">Claim not found</h1>
+        <p className="mt-2 text-sm text-slate-300">
           We could not find a claim for this reference.
         </p>
         <Link
           href="/explore"
-          className="mt-5 inline-flex h-10 items-center rounded-xl border px-4 text-sm hover:bg-gray-50"
+          className="omni-button-secondary mt-5 inline-flex h-10 items-center rounded-xl px-4 text-sm"
         >
           Back to Explore
         </Link>
+      </div>
       </div>
     </main>
   );
@@ -148,41 +151,43 @@ export default async function Page(props: {
   const tagLabel = tag?.title ? `${tag.title} (${resolvedTagId})` : label(resolvedTagId);
 
   return (
-    <main className="mx-auto max-w-2xl p-6 sm:p-8">
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="text-sm font-medium text-green-700">Confirmation</div>
-        <h1 className="mt-1 text-2xl font-semibold">Claim confirmation</h1>
+    <main className="omni-page-bg relative min-h-screen overflow-hidden px-4 py-8 text-white">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
+      <div className="relative z-10 mx-auto max-w-2xl">
+      <div className="omni-panel rounded-2xl p-6">
+        <div className="text-sm font-medium text-emerald-200">Confirmation</div>
+        <h1 className="mt-1 text-2xl font-semibold text-white">Claim confirmation</h1>
 
-        <div className="mt-6 space-y-3 text-sm text-gray-700">
+        <div className="mt-6 space-y-3 text-sm text-slate-300">
           <div>
-            <span className="font-medium text-gray-950">Reference:</span> {action.public_ref}
+            <span className="font-medium text-white">Reference:</span> {action.public_ref}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Status:</span> {label(action.action_status ?? action.status, 'Recorded')}
+            <span className="font-medium text-white">Status:</span> {label(action.action_status ?? action.status, 'Recorded')}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Action:</span> {label(block?.action_type)}
+            <span className="font-medium text-white">Action:</span> {label(block?.action_type)}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Tag:</span> {tagLabel}
+            <span className="font-medium text-white">Tag:</span> {tagLabel}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Availability:</span> {label(block?.title)}
+            <span className="font-medium text-white">Availability:</span> {label(block?.title)}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Time:</span> {fmtWindow(block)}
+            <span className="font-medium text-white">Time:</span> {fmtWindow(block)}
             {block?.timezone && <span> ({block.timezone})</span>}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Quantity:</span> {Number(action.quantity ?? 1) || 1}
+            <span className="font-medium text-white">Quantity:</span> {Number(action.quantity ?? 1) || 1}
           </div>
           <div>
-            <span className="font-medium text-gray-950">Created:</span> {fmtDateTime(action.created_at)}
+            <span className="font-medium text-white">Created:</span> {fmtDateTime(action.created_at)}
           </div>
         </div>
 
         {!relationshipValid && (
-          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="mt-4 rounded-xl border border-yellow-300/20 bg-yellow-300/10 p-3 text-sm text-yellow-100">
             Availability details are unavailable for this claim.
           </p>
         )}
@@ -191,18 +196,19 @@ export default async function Page(props: {
           {resolvedTagId && (
             <Link
               href={`/tag/${encodeURIComponent(resolvedTagId)}`}
-              className="inline-flex h-10 items-center rounded-xl border px-4 text-sm hover:bg-gray-50"
+              className="omni-button-primary inline-flex h-10 items-center rounded-xl px-4 text-sm"
             >
               Back to tag
             </Link>
           )}
           <Link
             href="/explore"
-            className="inline-flex h-10 items-center rounded-xl border px-4 text-sm hover:bg-gray-50"
+            className="omni-button-secondary inline-flex h-10 items-center rounded-xl px-4 text-sm"
           >
             Explore
           </Link>
         </div>
+      </div>
       </div>
     </main>
   );

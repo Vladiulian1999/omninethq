@@ -68,41 +68,41 @@ export default function BookingRequestsList({ tagId, ownerId }: { tagId: string;
   if (!userId || userId !== ownerId) return null
 
   return (
-    <div className="mt-10 text-left max-w-3xl mx-auto">
-      <h3 className="text-xl font-semibold mb-4">📋 Booking Requests</h3>
+    <div className="mx-auto mt-10 max-w-3xl text-left">
+      <h3 className="mb-4 text-xl font-semibold text-white">📋 Booking Requests</h3>
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-slate-400">Loading...</p>
       ) : bookings.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">No bookings yet.</p>
+        <p className="text-sm italic text-slate-400">No bookings yet.</p>
       ) : (
         <ul className="space-y-4">
           {bookings.map((b) => (
             <li
               key={b.id}
-              className="p-4 border rounded-xl bg-white shadow-sm flex flex-col gap-2"
+              className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.045] p-4 shadow-sm"
             >
               <div className="flex justify-between items-center">
-                <span className="font-medium">
+                <span className="font-medium text-white">
                   {b.requester_name} ({b.requester_email})
                 </span>
                 <span
                   className={`text-xs px-2 py-1 rounded-full ${
                     b.status === 'pending'
-                      ? 'bg-yellow-100 text-yellow-800'
+                      ? 'border border-yellow-300/25 bg-yellow-300/10 text-yellow-100'
                       : b.status === 'accepted'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
+                      ? 'border border-emerald-300/25 bg-emerald-300/10 text-emerald-100'
+                      : 'border border-red-300/25 bg-red-300/10 text-red-100'
                   }`}
                 >
                   {b.status}
                 </span>
               </div>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 📅 {new Date(b.preferred_at).toLocaleString()}
               </p>
-              {b.requester_phone && <p className="text-sm">📞 {b.requester_phone}</p>}
-              {b.message && <p className="text-sm">💬 {b.message}</p>}
-              <p className="text-xs text-gray-400">
+              {b.requester_phone && <p className="text-sm text-slate-300">📞 {b.requester_phone}</p>}
+              {b.message && <p className="text-sm text-slate-300">💬 {b.message}</p>}
+              <p className="text-xs text-slate-500">
                 Submitted {new Date(b.created_at).toLocaleString()}
               </p>
 
@@ -110,13 +110,13 @@ export default function BookingRequestsList({ tagId, ownerId }: { tagId: string;
                 <div className="flex gap-2 mt-2">
                   <button
                     onClick={() => updateStatus(b.id, 'accepted')}
-                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                    className="rounded bg-emerald-500/85 px-3 py-1 text-sm text-white transition hover:bg-emerald-400"
                   >
                     Accept
                   </button>
                   <button
                     onClick={() => updateStatus(b.id, 'declined')}
-                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                    className="rounded bg-red-500/85 px-3 py-1 text-sm text-white transition hover:bg-red-400"
                   >
                     Decline
                   </button>

@@ -235,17 +235,20 @@ export default function SuccessClient({
   const v = VARIANTS[variant];
 
   return (
-    <div className="p-8 max-w-2xl mx-auto text-center">
+    <div className="omni-page-bg relative min-h-screen overflow-hidden px-4 py-8 text-center text-white">
+      <div className="omni-grid-bg pointer-events-none absolute inset-0 opacity-20" />
       <Toaster position="top-center" />
-      <BackButton />
+      <div className="relative z-10 mx-auto max-w-2xl">
+      <BackButton className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white" />
 
-      <h1 className="text-3xl font-bold mt-4 mb-2">Thank you! 🎉</h1>
+      <div className="omni-panel mt-4 rounded-2xl p-6">
+      <h1 className="mb-2 text-3xl font-bold text-white">Thank you! 🎉</h1>
 
-      {loading && <p className="text-gray-600">Confirming your payment…</p>}
+      {loading && <p className="text-slate-300">Confirming your payment…</p>}
 
       {!loading && info?.ok && (
         <>
-          <p className="text-gray-700">
+          <p className="text-slate-300">
             {amountGBP ? `You donated ${amountGBP}. ` : 'Your donation was received. '}
             {tagTitle ? (
               <>
@@ -257,28 +260,28 @@ export default function SuccessClient({
           </p>
 
           {info.refCode && (
-            <p className="mt-2 text-gray-600">
+            <p className="mt-2 text-slate-400">
               Referred by{' '}
               <span className="font-semibold">{refUsername ? `@${refUsername}` : info.refCode}</span>
             </p>
           )}
 
           {tagIdClean && (
-            <div className="mt-6 border rounded-2xl p-4 bg-white shadow-sm">
-              <h3 className="font-semibold mb-1">{v.title}</h3>
-              <p className="text-sm text-gray-600">{v.body(tagTitle)}</p>
-              <p className="text-xs text-gray-400 break-all mt-1">{tagUrl}</p>
+            <div className="omni-card mt-6 rounded-2xl p-4">
+              <h3 className="mb-1 font-semibold text-white">{v.title}</h3>
+              <p className="text-sm text-slate-300">{v.body(tagTitle)}</p>
+              <p className="mt-1 break-all text-xs text-slate-500">{tagUrl}</p>
 
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                 <button
                   onClick={handleShareTag}
-                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                  className="omni-button-primary rounded-xl px-4 py-2 text-sm"
                 >
                   📣 {v.cta}
                 </button>
                 <button
                   onClick={handleCopyTagLink}
-                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                  className="omni-button-secondary rounded-xl px-4 py-2 text-sm"
                 >
                   🔗 Copy link
                 </button>
@@ -286,7 +289,7 @@ export default function SuccessClient({
                   href={`/tag/${tagIdClean}/print`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="border rounded-xl px-4 py-2 text-sm hover:bg-gray-50"
+                  className="omni-button-secondary rounded-xl px-4 py-2 text-sm"
                 >
                   🖨️ Print QR
                 </Link>
@@ -298,22 +301,22 @@ export default function SuccessClient({
             {claimRefClean && (
               <Link
                 href={`/claim/${encodeURIComponent(claimRefClean)}`}
-                className="border rounded-xl px-4 py-2 hover:bg-gray-50"
+                className="omni-button-primary rounded-xl px-4 py-2"
               >
                 View claim confirmation
               </Link>
             )}
-            <Link href={tagUrl} className="border rounded-xl px-4 py-2 hover:bg-gray-50">
+            <Link href={tagUrl} className="omni-button-secondary rounded-xl px-4 py-2">
               View the tag
             </Link>
-            <Link href="/explore" className="border rounded-xl px-4 py-2 hover:bg-gray-50">
+            <Link href="/explore" className="omni-button-secondary rounded-xl px-4 py-2">
               Explore more
             </Link>
           </div>
 
-          <div className="mt-8 border rounded-2xl p-4 text-left bg-white shadow-sm">
-            <h3 className="font-semibold mb-2">Receipt</h3>
-            <div className="text-sm text-gray-700 space-y-1">
+          <div className="omni-card mt-8 rounded-2xl p-4 text-left">
+            <h3 className="mb-2 font-semibold text-white">Receipt</h3>
+            <div className="space-y-1 text-sm text-slate-300">
               {info.customer_name && <div>Donor: {info.customer_name}</div>}
               {info.customer_email && <div>Email: {info.customer_email}</div>}
               {amountGBP && <div>Amount: {amountGBP}</div>}
@@ -325,15 +328,17 @@ export default function SuccessClient({
 
       {!loading && !info?.ok && (
         <>
-          <p className="text-red-600">We couldn’t verify your payment.</p>
-          {info?.error && <p className="text-gray-500 mt-1">{info.error}</p>}
+          <p className="text-red-200">We couldn’t verify your payment.</p>
+          {info?.error && <p className="mt-1 text-slate-400">{info.error}</p>}
           <div className="mt-4">
-            <Link href="/explore" className="border rounded-xl px-4 py-2 hover:bg-gray-50">
+            <Link href="/explore" className="omni-button-secondary rounded-xl px-4 py-2">
               Back to Explore
             </Link>
           </div>
         </>
       )}
+      </div>
+      </div>
     </div>
   );
 }

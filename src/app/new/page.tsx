@@ -34,7 +34,7 @@ export default async function Page() {
   }
 
   return (
-    <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+    <Suspense fallback={<div className="omni-page-bg min-h-screen p-6 text-slate-300">Loading…</div>}>
       <NewClient />
     </Suspense>
   )

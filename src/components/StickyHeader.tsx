@@ -65,7 +65,7 @@ export default function StickyHeader() {
           onClick={() => setOpen(false)}
         >
           {children}
-          {active ? <span aria-hidden>•</span> : null}
+          {active ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-cyan-200" /> : null}
         </Link>
       )
     }
