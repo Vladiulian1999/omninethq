@@ -1426,7 +1426,7 @@ export default function TagClient({ tagId, scanChartData }: Props) {
                     Rating: {f.rating} by {f.name}
                   </p>
                   {isOwner && (
-                    <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-600 hover:underline">
+                    <button onClick={() => handleDeleteFeedback(f.id)} className="text-xs text-red-200 hover:underline">
                       Hide
                     </button>
                   )}

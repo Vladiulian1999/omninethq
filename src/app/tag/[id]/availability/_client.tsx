@@ -358,10 +358,10 @@ function notificationStatusLabel(status?: string | null) {
 
 function notificationBadgeClass(status?: string | null) {
   const s = String(status ?? '').trim().toLowerCase();
-  if (s === 'sent') return 'bg-emerald-100 text-emerald-700';
-  if (s === 'failed') return 'bg-red-100 text-red-700';
-  if (s === 'attempted') return 'bg-amber-100 text-amber-700';
-  return 'bg-gray-200 text-gray-700';
+  if (s === 'sent') return 'border border-emerald-300/25 bg-emerald-300/10 text-emerald-100';
+  if (s === 'failed') return 'border border-red-300/25 bg-red-300/10 text-red-100';
+  if (s === 'attempted') return 'border border-yellow-300/25 bg-yellow-300/10 text-yellow-100';
+  return 'border border-slate-300/20 bg-slate-300/10 text-slate-200';
 }
 
 function providerMessageId(log: NotificationLogRow | null | undefined) {
@@ -400,9 +400,9 @@ function workflowLabel(state: ClaimWorkflowState) {
 }
 
 function workflowBadgeClass(state: ClaimWorkflowState) {
-  if (state === 'open') return 'bg-orange-100 text-orange-700';
-  if (state === 'contacted') return 'bg-blue-100 text-blue-700';
-  return 'bg-gray-200 text-gray-700';
+  if (state === 'open') return 'border border-orange-300/25 bg-orange-300/10 text-orange-100';
+  if (state === 'contacted') return 'border border-blue-300/25 bg-blue-300/10 text-blue-100';
+  return 'border border-slate-300/20 bg-slate-300/10 text-slate-200';
 }
 
 const CLAIM_AGING_MS = 15 * 60 * 1000;
@@ -435,9 +435,9 @@ function claimAgeLabel(state: ClaimAgeState) {
 }
 
 function claimAgeBadgeClass(state: ClaimAgeState) {
-  if (state === 'stale') return 'bg-red-100 text-red-700';
-  if (state === 'aging') return 'bg-yellow-100 text-yellow-700';
-  return 'bg-emerald-100 text-emerald-700';
+  if (state === 'stale') return 'border border-red-300/25 bg-red-300/10 text-red-100';
+  if (state === 'aging') return 'border border-yellow-300/25 bg-yellow-300/10 text-yellow-100';
+  return 'border border-emerald-300/25 bg-emerald-300/10 text-emerald-100';
 }
 
 function claimAgeHelpText(state: ClaimAgeState) {
@@ -488,8 +488,8 @@ function paymentAgeLabel(state: PaymentAgeState) {
 }
 
 function paymentAgeBadgeClass(state: PaymentAgeState) {
-  if (state === 'stale') return 'bg-red-100 text-red-700';
-  if (state === 'waiting') return 'bg-yellow-100 text-yellow-700';
+  if (state === 'stale') return 'border border-red-300/25 bg-red-300/10 text-red-100';
+  if (state === 'waiting') return 'border border-yellow-300/25 bg-yellow-300/10 text-yellow-100';
   return '';
 }
 
@@ -1205,28 +1205,28 @@ export default function AvailabilityClient() {
   const paymentStaleCount = allLoadedClaims.filter((claim) => paymentAgeState(claim) === 'stale').length;
 
   return (
-    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+    <div className="mx-auto max-w-5xl p-4 text-slate-100 sm:p-8">
       <Toaster />
 
       <div className="mb-4">
-        <BackButton />
+        <BackButton className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white" />
       </div>
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold">Manage availability</h1>
-          <p className="text-sm opacity-80 mt-1">
+          <h1 className="text-2xl font-semibold text-white sm:text-3xl">Manage availability</h1>
+          <p className="mt-1 text-sm text-slate-300">
             Edit the availability you already have. Add another one only if you genuinely need a second slot or a different context.
           </p>
         </div>
 
         <div className="flex gap-2">
-          <Link href={`/tag/${tagId}`} className="px-3 py-2 rounded-xl border hover:opacity-80">
+          <Link href={`/tag/${tagId}`} className="omni-button-secondary rounded-xl px-3 py-2">
             View Tag
           </Link>
           <button
             onClick={() => loadAll()}
-            className="px-3 py-2 rounded-xl border hover:opacity-80"
+            className="omni-button-secondary rounded-xl px-3 py-2 disabled:opacity-50"
             disabled={loading || saving || claimsLoading || !!claimSavingId || !!retryingNotificationLogId}
           >
             Refresh
@@ -1234,18 +1234,18 @@ export default function AvailabilityClient() {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-4 sm:p-6 mb-8">
+      <div className="omni-panel mb-8 rounded-2xl p-4 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Add another availability</h2>
-            <p className="text-sm opacity-80 mt-1">
+            <h2 className="text-lg font-semibold text-white">Add another availability</h2>
+            <p className="mt-1 text-sm text-slate-300">
               Only use this if this tag needs an extra slot, offer, or time window.
             </p>
           </div>
 
           <button
             onClick={() => setShowAddForm((v) => !v)}
-            className="px-4 py-2 rounded-xl border hover:opacity-80"
+            className="omni-button-secondary rounded-xl px-4 py-2"
           >
             {showAddForm ? 'Hide' : 'Add another'}
           </button>
@@ -1259,11 +1259,11 @@ export default function AvailabilityClient() {
               <button
                 onClick={createBlock}
                 disabled={saving || loading}
-                className="px-4 py-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-50"
+                className="omni-button-primary rounded-xl px-4 py-2 disabled:opacity-50"
               >
                 Add
               </button>
-              <p className="text-xs opacity-70">
+              <p className="text-xs text-slate-400">
                 If you save this as live, any other live block for this tag will be paused first.
               </p>
             </div>
@@ -1271,28 +1271,28 @@ export default function AvailabilityClient() {
         )}
       </div>
 
-      <div className="mb-6 rounded-2xl border p-4 sm:p-5">
+      <div className="omni-panel mb-6 rounded-2xl p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Needs attention now</h2>
-            <p className="text-sm opacity-80 mt-1">
+            <h2 className="text-lg font-semibold text-white">Needs attention now</h2>
+            <p className="mt-1 text-sm text-slate-300">
               Aging means open 15m+. Stale means open 1h+. Payment warnings mean checkout started but has not paid.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+            <span className="rounded-full border border-yellow-300/25 bg-yellow-300/10 px-2 py-1 text-yellow-100">
               Aging {needsAttentionAgingCount}
             </span>
-            <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+            <span className="rounded-full border border-red-300/25 bg-red-300/10 px-2 py-1 text-red-100">
               Stale {needsAttentionStaleCount}
             </span>
             {paymentWaitingCount > 0 && (
-              <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+              <span className="rounded-full border border-yellow-300/25 bg-yellow-300/10 px-2 py-1 text-yellow-100">
                 Payment waiting {paymentWaitingCount}
               </span>
             )}
             {paymentStaleCount > 0 && (
-              <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+              <span className="rounded-full border border-red-300/25 bg-red-300/10 px-2 py-1 text-red-100">
                 Payment stale {paymentStaleCount}
               </span>
             )}
@@ -1300,7 +1300,7 @@ export default function AvailabilityClient() {
         </div>
 
         {needsAttentionNow.length === 0 ? (
-          <div className="mt-4 rounded-xl border bg-black/[0.02] p-4 text-sm opacity-70">
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/55 p-4 text-sm text-slate-300">
             Nothing urgent right now.
           </div>
         ) : (
@@ -1335,34 +1335,34 @@ export default function AvailabilityClient() {
         )}
       </div>
 
-      <div className="mb-6 rounded-2xl border p-4 sm:p-5">
+      <div className="omni-panel mb-6 rounded-2xl p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Recent claims visibility</h2>
-            <p className="text-sm opacity-80 mt-1">
+            <h2 className="text-lg font-semibold text-white">Recent claims visibility</h2>
+            <p className="mt-1 text-sm text-slate-300">
               Open claims are flagged by age, payment wait, notification result, and owner follow-up state.
             </p>
           </div>
-          <div className="text-xs opacity-70">
+          <div className="text-xs text-slate-400">
             {claimsLoading ? 'Refreshing claims…' : 'Claims, age, and notification status loaded'}
           </div>
         </div>
 
-        <div className="mt-4 rounded-xl border bg-black/[0.02] p-3 text-xs">
-          <div className="font-medium">Claim load diagnostics</div>
-          <div className="mt-1 opacity-80">
+        <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/55 p-3 text-xs text-slate-300">
+          <div className="font-medium text-white">Claim load diagnostics</div>
+          <div className="mt-1 text-slate-300">
             Loaded claims from canonical block query:{' '}
             {claimLoadDiagnostic.loadedCount == null ? 'not loaded yet' : claimLoadDiagnostic.loadedCount}
           </div>
 
           {claimLoadDiagnostic.error && (
-            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-red-700">
+            <div className="mt-2 rounded-lg border border-red-300/25 bg-red-300/10 p-2 text-red-100">
               availability_actions load failed: {claimLoadDiagnostic.error}
             </div>
           )}
 
           {claimLoadDiagnostic.unmatchedClaims.length > 0 && (
-            <div className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50 p-2 text-yellow-800">
+            <div className="mt-2 rounded-lg border border-yellow-300/25 bg-yellow-300/10 p-2 text-yellow-100">
               <div className="font-medium">
                 Claims returned with empty or unmatched block_id: {claimLoadDiagnostic.unmatchedClaims.length}
               </div>
@@ -1483,7 +1483,7 @@ export default function AvailabilityClient() {
         />
       </div>
 
-      {loading && <div className="mt-8 text-sm opacity-70">Loading…</div>}
+      {loading && <div className="mt-8 text-sm text-slate-400">Loading…</div>}
     </div>
   );
 }
@@ -1497,31 +1497,31 @@ function BlockEditorFields(props: {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div className="sm:col-span-2">
-        <label className="text-sm opacity-80">Title</label>
+        <label className="text-sm text-slate-300">Title</label>
         <input
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
           placeholder="e.g. Lunch special, tutoring slot, haircut booking"
         />
       </div>
 
       <div className="sm:col-span-2">
-        <label className="text-sm opacity-80">Description (optional)</label>
+        <label className="text-sm text-slate-300">Description (optional)</label>
         <textarea
           value={form.description}
           onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent min-h-[90px]"
+          className="omni-input mt-1 min-h-[90px] w-full rounded-xl px-3 py-2"
           placeholder="Optional details"
         />
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Action</label>
+        <label className="text-sm text-slate-300">Action</label>
         <select
           value={form.actionType}
           onChange={(e) => setForm((f) => ({ ...f, actionType: e.target.value as ActionType }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
         >
           <option value="book">Book</option>
           <option value="reserve">Reserve</option>
@@ -1532,11 +1532,11 @@ function BlockEditorFields(props: {
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Visibility</label>
+        <label className="text-sm text-slate-300">Visibility</label>
         <select
           value={form.visibility}
           onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value as Visibility }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
         >
           <option value="public">Public</option>
           <option value="unlisted">Unlisted</option>
@@ -1545,11 +1545,11 @@ function BlockEditorFields(props: {
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Status</label>
+        <label className="text-sm text-slate-300">Status</label>
         <select
           value={form.status}
           onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as BlockStatus }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
         >
           <option value="live">Live</option>
           <option value="draft">Draft</option>
@@ -1559,64 +1559,64 @@ function BlockEditorFields(props: {
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Timezone</label>
+        <label className="text-sm text-slate-300">Timezone</label>
         <input
           value={form.timezone}
           onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
           placeholder="Europe/London"
         />
       </div>
 
       <div>
-        <label className="text-sm opacity-80">
+        <label className="text-sm text-slate-300">
           Start {form.status === 'live' ? '(required for live)' : '(optional)'}
         </label>
         <input
           type="datetime-local"
           value={form.startAt}
           onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
         />
       </div>
 
       <div>
-        <label className="text-sm opacity-80">
+        <label className="text-sm text-slate-300">
           End {form.status === 'live' ? '(required for live)' : '(optional)'}
         </label>
         <input
           type="datetime-local"
           value={form.endAt}
           onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
         />
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Capacity (blank = unlimited)</label>
+        <label className="text-sm text-slate-300">Capacity (blank = unlimited)</label>
         <input
           value={form.capacityTotal}
           onChange={(e) => setForm((f) => ({ ...f, capacityTotal: e.target.value }))}
-          className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+          className="omni-input mt-1 w-full rounded-xl px-3 py-2"
           placeholder="e.g. 10"
           inputMode="numeric"
         />
       </div>
 
       <div>
-        <label className="text-sm opacity-80">Price (optional)</label>
+        <label className="text-sm text-slate-300">Price (optional)</label>
         <div className="flex gap-2">
           <input
             value={form.priceText}
             onChange={(e) => setForm((f) => ({ ...f, priceText: e.target.value }))}
-            className="mt-1 w-full px-3 py-2 rounded-xl border bg-transparent"
+            className="omni-input mt-1 w-full rounded-xl px-3 py-2"
             placeholder="e.g. 25"
             inputMode="decimal"
           />
           <select
             value={form.currency}
             onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-            className="mt-1 px-3 py-2 rounded-xl border bg-transparent"
+            className="omni-input mt-1 rounded-xl px-3 py-2"
           >
             <option value="GBP">GBP</option>
             <option value="EUR">EUR</option>
@@ -1665,14 +1665,14 @@ function AttentionClaimCard(props: {
   const contact = String(claim.customer_contact ?? '').trim();
 
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border border-white/10 bg-slate-950/70 p-4 text-slate-100 shadow-[0_18px_60px_rgba(0,0,0,0.2)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-xs px-2 py-1 rounded-full ${claimAgeBadgeClass(ageState)}`}>
               {claimAgeLabel(ageState)}
             </span>
-            <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">
               {block.title}
             </span>
             <span className={`text-xs px-2 py-1 rounded-full ${workflowBadgeClass('open')}`}>
@@ -1684,7 +1684,7 @@ function AttentionClaimCard(props: {
               </span>
             )}
             {paymentConfirmed && (
-              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+              <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-100">
                 PAYMENT PAID
               </span>
             )}
@@ -1694,23 +1694,23 @@ function AttentionClaimCard(props: {
               </span>
             )}
             {acknowledged && (
-              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+              <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-100">
                 ACKNOWLEDGED
               </span>
             )}
             {!contacted && ageState === 'stale' && (
-              <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+              <span className="rounded-full border border-red-300/25 bg-red-300/10 px-2 py-1 text-xs text-red-100">
                 NOT CONTACTED
               </span>
             )}
           </div>
 
-          <div className="mt-2 font-medium">{claimDisplayName(claim)}</div>
+          <div className="mt-2 font-medium text-white">{claimDisplayName(claim)}</div>
 
-          <div className="mt-2 text-xs opacity-70 space-y-1">
+          <div className="mt-2 space-y-1 text-xs text-slate-300">
             {claim.created_at && <div>When: {fmtDT(claim.created_at)}{ageText ? ` (${ageText})` : ''}</div>}
             <div>Age: {claimAgeHelpText(ageState)}</div>
-            {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-600' : 'text-yellow-700'}>{paymentHelp}</div>}
+            {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-200' : 'text-yellow-100'}>{paymentHelp}</div>}
             <div>Action: {shorten(claimPrimaryId(claim), 12)}</div>
             {claim.referral_code && <div>Referral: {String(claim.referral_code)}</div>}
           </div>
@@ -1724,11 +1724,11 @@ function AttentionClaimCard(props: {
                 onClick={() => onConfirmClaim(claim)}
                 disabled={savingThisClaim}
                 title="Use this when you have seen the claim and will handle it."
-                className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                className="rounded-xl border border-cyan-300/30 bg-cyan-300/12 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
               >
                 Acknowledge
               </button>
-              <div className="mt-1 text-[11px] opacity-60">Seen, not contacted yet.</div>
+              <div className="mt-1 text-[11px] text-slate-400">Seen, not contacted yet.</div>
             </div>
           )}
 
@@ -1738,11 +1738,11 @@ function AttentionClaimCard(props: {
               onClick={() => onMarkContacted(claim)}
               disabled={savingThisClaim}
               title="Use this after you have messaged, called, or spoken to the customer."
-              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+              className="rounded-xl border border-emerald-300/30 bg-emerald-300/12 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/20 disabled:opacity-50"
             >
               Mark contacted
             </button>
-            <div className="mt-1 text-[11px] opacity-60">Customer has been reached.</div>
+            <div className="mt-1 text-[11px] text-slate-400">Customer has been reached.</div>
           </div>
 
           <div>
@@ -1751,11 +1751,11 @@ function AttentionClaimCard(props: {
               onClick={() => onMarkClosed(claim)}
               disabled={savingThisClaim}
               title="Use this when no more action is needed for this claim."
-              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
             >
               Close
             </button>
-            <div className="mt-1 text-[11px] opacity-60">Done or no longer needed.</div>
+            <div className="mt-1 text-[11px] text-slate-400">Done or no longer needed.</div>
           </div>
 
           {notifyLog && notifyStatus === 'failed' && (
@@ -1763,7 +1763,7 @@ function AttentionClaimCard(props: {
               type="button"
               onClick={() => onRetryNotification(notifyLog.id)}
               disabled={retryingThisNotification}
-              className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+              className="rounded-xl border border-yellow-300/30 bg-yellow-300/12 px-3 py-2 text-sm text-yellow-100 transition hover:bg-yellow-300/20 disabled:opacity-50"
             >
               {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
             </button>
@@ -1773,7 +1773,7 @@ function AttentionClaimCard(props: {
             <button
               type="button"
               onClick={() => copyText(contact)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
             >
               Copy contact
             </button>
@@ -1782,7 +1782,7 @@ function AttentionClaimCard(props: {
           {contact && isPhoneLike(contact) && (
             <a
               href={phoneHref(contact)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
             >
               Call
             </a>
@@ -1791,7 +1791,7 @@ function AttentionClaimCard(props: {
           {contact && isPhoneLike(contact) && (
             <a
               href={smsHref(contact)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
             >
               SMS
             </a>
@@ -1829,12 +1829,12 @@ function Section(props: {
   const { title, subtitle, blocks, muted } = props;
 
   return (
-    <div className={muted ? 'opacity-70' : ''}>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {subtitle && <p className="text-sm opacity-80 mt-1">{subtitle}</p>}
+    <div className={muted ? 'opacity-80' : ''}>
+      <h2 className="text-lg font-semibold text-white">{title}</h2>
+      {subtitle && <p className="mt-1 text-sm text-slate-300">{subtitle}</p>}
 
       {blocks.length === 0 ? (
-        <div className="mt-3 text-sm opacity-70">None.</div>
+        <div className="mt-3 text-sm text-slate-400">None.</div>
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3">
           {blocks.map((b) => (
@@ -1895,19 +1895,19 @@ function ClaimGroup(props: {
   } = props;
 
   return (
-    <div className="rounded-xl border bg-white p-3">
+    <div className="rounded-xl border border-white/10 bg-slate-950/55 p-3 text-slate-100">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium">{title}</div>
-          <div className="text-xs opacity-70">{subtitle}</div>
+          <div className="text-sm font-medium text-white">{title}</div>
+          <div className="text-xs text-slate-400">{subtitle}</div>
         </div>
-        <div className="text-xs px-2 py-1 rounded-full border opacity-80">
+        <div className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">
           {claims.length}
         </div>
       </div>
 
       {claims.length === 0 ? (
-        <div className="mt-3 text-sm opacity-60">None.</div>
+        <div className="mt-3 text-sm text-slate-400">None.</div>
       ) : (
         <div className="mt-3 space-y-2">
           {claims.map((claim, index) => {
@@ -1936,11 +1936,11 @@ function ClaimGroup(props: {
             const retryingThisNotification = retryingNotificationLogId === notifyLog?.id;
 
             return (
-              <div key={`${rowId || id || index}`} className="rounded-lg border bg-black/[0.02] p-3 text-sm">
+              <div key={`${rowId || id || index}`} className="rounded-lg border border-white/10 bg-white/[0.045] p-3 text-sm text-slate-200">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{claimDisplayName(claim)}</span>
-                  <span className="text-xs px-2 py-1 rounded-full border opacity-80">{status}</span>
-                  <span className="text-xs px-2 py-1 rounded-full border opacity-80">qty {qty}</span>
+                  <span className="font-medium text-white">{claimDisplayName(claim)}</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">{status}</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">qty {qty}</span>
                   <span className={`text-xs px-2 py-1 rounded-full ${workflowBadgeClass(workflow)}`}>
                     {workflowLabel(workflow)}
                   </span>
@@ -1950,10 +1950,10 @@ function ClaimGroup(props: {
                     </span>
                   )}
                   {channel && (
-                    <span className="text-xs px-2 py-1 rounded-full border opacity-80">{channel}</span>
+                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">{channel}</span>
                   )}
                   {paymentConfirmed && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                    <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-100">
                       PAYMENT PAID
                     </span>
                   )}
@@ -1963,22 +1963,22 @@ function ClaimGroup(props: {
                     </span>
                   )}
                   {acknowledged && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                    <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-100">
                       ACKNOWLEDGED
                     </span>
                   )}
                   {contacted && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                    <span className="rounded-full border border-blue-300/25 bg-blue-300/10 px-2 py-1 text-xs text-blue-100">
                       CONTACTED
                     </span>
                   )}
                   {closed && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                    <span className="rounded-full border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs text-slate-200">
                       CLOSED
                     </span>
                   )}
                   {!contacted && workflowState === 'open' && ageState === 'stale' && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    <span className="rounded-full border border-red-300/25 bg-red-300/10 px-2 py-1 text-xs text-red-100">
                       NOT CONTACTED
                     </span>
                   )}
@@ -1989,20 +1989,20 @@ function ClaimGroup(props: {
                   )}
                 </div>
 
-                <div className="mt-2 text-xs opacity-70 space-y-1">
+                <div className="mt-2 space-y-1 text-xs text-slate-300">
                   {created && <div>When: {created}{ageText ? ` (${ageText})` : ''}</div>}
                   {id && <div>Action: {shorten(id, 12)}</div>}
                   {referral && <div>Referral: {referral}</div>}
                   {workflowState === 'open' && (
-                    <div className={ageState === 'stale' ? 'text-red-600' : ageState === 'aging' ? 'text-yellow-700' : ''}>
+                    <div className={ageState === 'stale' ? 'text-red-200' : ageState === 'aging' ? 'text-yellow-100' : 'text-slate-300'}>
                       Age: {claimAgeHelpText(ageState)}
                     </div>
                   )}
-                  {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-600' : 'text-yellow-700'}>{paymentHelp}</div>}
+                  {paymentHelp && <div className={paymentState === 'stale' ? 'text-red-200' : 'text-yellow-100'}>{paymentHelp}</div>}
                   {notifyLog && notifyCreatedAt && <div>Notification: {notifyCreatedAt}</div>}
                   {notifyLog && notifyMessageId && <div>Provider message id: {notifyMessageId}</div>}
                   {notifyLog && notifyStatus === 'failed' && (
-                    <div className="text-red-600">Last notify attempt failed. Retry below.</div>
+                    <div className="text-red-200">Last notify attempt failed. Retry below.</div>
                   )}
                 </div>
 
@@ -2014,11 +2014,11 @@ function ClaimGroup(props: {
                         onClick={() => onConfirmClaim(claim)}
                         disabled={savingThisClaim}
                         title="Use this when you have seen the claim and will handle it."
-                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                        className="rounded-xl border border-cyan-300/30 bg-cyan-300/12 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-50"
                       >
                         Acknowledge
                       </button>
-                      <div className="mt-1 text-[11px] opacity-60">Seen, not contacted yet.</div>
+                      <div className="mt-1 text-[11px] text-slate-400">Seen, not contacted yet.</div>
                     </div>
                   )}
 
@@ -2029,11 +2029,11 @@ function ClaimGroup(props: {
                         onClick={() => onMarkContacted(claim)}
                         disabled={savingThisClaim}
                         title="Use this after you have messaged, called, or spoken to the customer."
-                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                        className="rounded-xl border border-emerald-300/30 bg-emerald-300/12 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/20 disabled:opacity-50"
                       >
                         Mark contacted
                       </button>
-                      <div className="mt-1 text-[11px] opacity-60">Customer has been reached.</div>
+                      <div className="mt-1 text-[11px] text-slate-400">Customer has been reached.</div>
                     </div>
                   )}
 
@@ -2044,11 +2044,11 @@ function ClaimGroup(props: {
                         onClick={() => onMarkClosed(claim)}
                         disabled={savingThisClaim}
                         title="Use this when no more action is needed for this claim."
-                        className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                        className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
                       >
                         Close
                       </button>
-                      <div className="mt-1 text-[11px] opacity-60">Done or no longer needed.</div>
+                      <div className="mt-1 text-[11px] text-slate-400">Done or no longer needed.</div>
                     </div>
                   )}
 
@@ -2057,7 +2057,7 @@ function ClaimGroup(props: {
                       type="button"
                       onClick={() => onRetryNotification(notifyLog.id)}
                       disabled={retryingThisNotification}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80 disabled:opacity-50"
+                      className="rounded-xl border border-yellow-300/30 bg-yellow-300/12 px-3 py-2 text-sm text-yellow-100 transition hover:bg-yellow-300/20 disabled:opacity-50"
                     >
                       {retryingThisNotification ? 'Retrying…' : 'Retry notification'}
                     </button>
@@ -2067,7 +2067,7 @@ function ClaimGroup(props: {
                     <button
                       type="button"
                       onClick={() => copyText(contact)}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                      className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
                     >
                       Copy contact
                     </button>
@@ -2076,7 +2076,7 @@ function ClaimGroup(props: {
                   {contact && isPhoneLike(contact) && (
                     <a
                       href={phoneHref(contact)}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                      className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
                     >
                       Call
                     </a>
@@ -2085,7 +2085,7 @@ function ClaimGroup(props: {
                   {contact && isPhoneLike(contact) && (
                     <a
                       href={smsHref(contact)}
-                      className="px-3 py-2 rounded-xl border hover:opacity-80"
+                      className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12]"
                     >
                       SMS
                     </a>
@@ -2171,38 +2171,38 @@ function BlockCard(props: {
   const agingOpenCount = openClaims.filter((claim) => claimAgeState(claim) === 'aging').length;
 
   return (
-    <div className="rounded-2xl border p-4">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 text-slate-100 shadow-[0_18px_60px_rgba(0,0,0,0.16)]">
       {!editing ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-[240px] flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold">{b.title}</h3>
-              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.status}</span>
-              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.action_type}</span>
-              <span className="text-xs px-2 py-1 rounded-full border opacity-80">{b.visibility}</span>
+              <h3 className="font-semibold text-white">{b.title}</h3>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">{b.status}</span>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">{b.action_type}</span>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">{b.visibility}</span>
 
               {starter && (
-                <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+                <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">
                   starter
                 </span>
               )}
 
               {liveNow && (
-                <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
+                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-100">
                   LIVE NOW
                 </span>
               )}
 
               {scheduled && b.start_at && (
-                <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                <span className="rounded-full border border-yellow-300/25 bg-yellow-300/10 px-2 py-1 text-xs text-yellow-100">
                   SCHEDULED · {timeUntil(b.start_at)}
                 </span>
               )}
             </div>
 
-            {b.description && <p className="text-sm opacity-80 mt-1">{b.description}</p>}
+            {b.description && <p className="mt-1 text-sm text-slate-300">{b.description}</p>}
 
-            <div className="text-sm opacity-80 mt-2 space-y-1">
+            <div className="mt-2 space-y-1 text-sm text-slate-300">
               <div>Time: {start ? `${start}${end ? ` → ${end}` : ''}` : 'Always'}</div>
               <div>
                 Capacity: {cap}
@@ -2211,31 +2211,31 @@ function BlockCard(props: {
               {money && <div>Price: {money}</div>}
             </div>
 
-            <div className="mt-4 rounded-xl border bg-black/[0.02] p-3">
+            <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/55 p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium">Claim workflow</div>
-                  <div className="text-xs opacity-70">
+                  <div className="text-sm font-medium text-white">Claim workflow</div>
+                  <div className="text-xs text-slate-400">
                     Acknowledge = seen. Contacted = customer reached. Close = no more action needed.
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-700">
+                  <span className="rounded-full border border-orange-300/25 bg-orange-300/10 px-2 py-1 text-orange-100">
                     Open {openClaims.length}
                   </span>
-                  <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                  <span className="rounded-full border border-blue-300/25 bg-blue-300/10 px-2 py-1 text-blue-100">
                     Contacted {contactedClaims.length}
                   </span>
-                  <span className="px-2 py-1 rounded-full bg-gray-200 text-gray-700">
+                  <span className="rounded-full border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-slate-200">
                     Closed {closedClaims.length}
                   </span>
                   {agingOpenCount > 0 && (
-                    <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                    <span className="rounded-full border border-yellow-300/25 bg-yellow-300/10 px-2 py-1 text-yellow-100">
                       Aging {agingOpenCount}
                     </span>
                   )}
                   {staleOpenCount > 0 && (
-                    <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    <span className="rounded-full border border-red-300/25 bg-red-300/10 px-2 py-1 text-red-100">
                       Stale {staleOpenCount}
                     </span>
                   )}
@@ -2291,7 +2291,7 @@ function BlockCard(props: {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => onStartEdit(b)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
               disabled={saving}
             >
               Edit
@@ -2299,7 +2299,7 @@ function BlockCard(props: {
 
             <button
               onClick={() => onQuickStatusChange(b.id, b.status === 'live' ? 'paused' : 'live')}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
               disabled={saving}
             >
               {b.status === 'live' ? 'Pause' : 'Go live'}
@@ -2307,7 +2307,7 @@ function BlockCard(props: {
 
             <button
               onClick={() => onQuickStatusChange(b.id, 'sold_out')}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
               disabled={saving}
             >
               Sold out
@@ -2315,7 +2315,7 @@ function BlockCard(props: {
 
             <button
               onClick={() => onDuplicate(b)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2 text-sm text-slate-100 transition hover:bg-white/[0.12] disabled:opacity-50"
               disabled={saving}
             >
               Duplicate
@@ -2323,7 +2323,7 @@ function BlockCard(props: {
 
             <button
               onClick={() => onDelete(b.id)}
-              className="px-3 py-2 rounded-xl border hover:opacity-80"
+              className="rounded-xl border border-red-300/30 bg-red-300/10 px-3 py-2 text-sm text-red-100 transition hover:bg-red-300/20 disabled:opacity-50"
               disabled={saving}
             >
               Delete
@@ -2333,9 +2333,9 @@ function BlockCard(props: {
       ) : (
         <div>
           <div className="flex items-center gap-2 flex-wrap mb-4">
-            <h3 className="font-semibold">Edit availability</h3>
+            <h3 className="font-semibold text-white">Edit availability</h3>
             {starter && (
-              <span className="text-xs px-2 py-1 rounded-full border opacity-80">
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-xs text-slate-200">
                 starter
               </span>
             )}
@@ -2351,7 +2351,7 @@ function BlockCard(props: {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={() => onSaveEdit(b.id)}
-              className="px-4 py-2 rounded-xl bg-black text-white dark:bg-white dark:text-black hover:opacity-90 disabled:opacity-50"
+              className="omni-button-primary rounded-xl px-4 py-2 disabled:opacity-50"
               disabled={saving}
             >
               Save changes
@@ -2359,14 +2359,14 @@ function BlockCard(props: {
 
             <button
               onClick={onCancelEdit}
-              className="px-4 py-2 rounded-xl border hover:opacity-80"
+              className="omni-button-secondary rounded-xl px-4 py-2 disabled:opacity-50"
               disabled={saving}
             >
               Cancel
             </button>
           </div>
 
-          <p className="text-xs opacity-70 mt-3">
+          <p className="mt-3 text-xs text-slate-400">
             Saving this block as live will pause any other live block for this tag.
           </p>
         </div>
