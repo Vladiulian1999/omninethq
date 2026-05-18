@@ -16,7 +16,7 @@ export default function Home() {
           Live requests, tracked in one place
         </div>
 
-        <h1 className="max-w-2xl text-balance text-3xl font-semibold leading-[1.12] text-white sm:text-4xl lg:text-5xl">
+        <h1 className="max-w-xl text-balance text-2xl font-semibold leading-[1.14] text-white sm:text-3xl lg:text-4xl">
           Stop losing customers between 'interested' and 'I'll message later.'
         </h1>
         <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">

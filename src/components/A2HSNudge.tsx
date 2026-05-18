@@ -7,7 +7,7 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
-const DISMISS_KEY = 'a2hs_seen'
+const DISMISS_KEY = 'a2hs_seen_v2'
 
 function isiOS() {
   if (typeof navigator === 'undefined') return false
@@ -83,7 +83,7 @@ export default function A2HSNudge() {
   if (!show) return null
 
   return (
-    <div className="fixed bottom-4 inset-x-4 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#08101b]/95 p-4 text-slate-100 shadow-2xl backdrop-blur-xl sm:bottom-5">
+    <div className="fixed inset-x-4 bottom-4 z-[80] mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#08101b]/95 p-4 text-slate-100 shadow-2xl backdrop-blur-xl sm:bottom-5">
       {platform === 'android' ? (
         <>
           <div className="text-sm leading-snug">

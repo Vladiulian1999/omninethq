@@ -27,14 +27,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
 
         {/* Theme colors for light/dark */}
-        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#05070d" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#05070d" media="(prefers-color-scheme: dark)" />
 
         {/* iOS PWA hints */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} bg-[#05070d] text-slate-100`}>
         <StickyHeader />
         {children}
         <A2HSNudge />

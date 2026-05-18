@@ -80,7 +80,7 @@ export default function StickyHeader() {
   return (
     <header
       className={
-        'sticky top-0 z-40 border-b border-white/10 bg-[#05070d]/88 text-white shadow-[0_16px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl'
+        'sticky top-0 z-50 border-b border-white/10 bg-[#05070d]/95 text-white shadow-[0_16px_60px_rgba(0,0,0,0.32)] backdrop-blur-2xl supports-[backdrop-filter]:bg-[#05070d]/82'
       }
       style={{
         paddingTop: 'env(safe-area-inset-top)',
