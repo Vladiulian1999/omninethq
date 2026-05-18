@@ -12,7 +12,6 @@ export default function StickyHeader() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
-  // Auth state (inline so we can show Login/Profile/Logout inside the menu)
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
@@ -21,7 +20,6 @@ export default function StickyHeader() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Close on outside click / ESC
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!menuRef.current) return
@@ -38,7 +36,7 @@ export default function StickyHeader() {
     }
   }, [])
 
-  const baseH = 56 // base row height (without safe-area)
+  const baseH = 56
 
   async function logout() {
     await supabase.auth.signOut()
@@ -55,17 +53,23 @@ export default function StickyHeader() {
     children: React.ReactNode
     onClick?: () => void
   }) => {
-    const active = href ? (pathname === href || pathname.startsWith(href + '/')) : false
+    const active = href ? pathname === href || pathname.startsWith(href + '/') : false
     const cls =
-      'flex w-full items-center justify-between rounded-xl border px-3 py-2 text-sm hover:bg-gray-50'
+      'flex w-full items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-100 hover:bg-white/10'
+
     if (href) {
       return (
-        <Link href={href} className={`${cls} ${active ? 'bg-black text-white hover:bg-black' : ''}`} onClick={() => setOpen(false)}>
+        <Link
+          href={href}
+          className={`${cls} ${active ? 'bg-white/15 text-white hover:bg-white/15' : ''}`}
+          onClick={() => setOpen(false)}
+        >
           {children}
-          {active ? <span aria-hidden>●</span> : null}
+          {active ? <span aria-hidden>•</span> : null}
         </Link>
       )
     }
+
     return (
       <button className={cls} onClick={onClick}>
         {children}
@@ -75,28 +79,32 @@ export default function StickyHeader() {
 
   return (
     <header
-      className="sticky top-0 z-40 border-b bg-white/90 backdrop-blur"
+      className={
+        'sticky top-0 z-40 border-b border-white/10 bg-[#05070d]/88 text-white shadow-[0_16px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl'
+      }
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        // expose header height (safe-area aware) for downstream sticky elements
-        // @ts-ignore custom property
         ['--header-h' as any]: `calc(${baseH}px + env(safe-area-inset-top))`,
       }}
     >
       <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-        {/* Brand */}
         <div className="flex min-w-0 items-center gap-3">
-          <img src="/icon-omninet.svg" alt="OmniNet" className="w-6 h-6 rounded-lg shrink-0" />
-          <a href="/" className="font-semibold truncate">OmniNet</a>
+          <span className="rounded-xl border border-white/10 bg-white/10 p-1 shadow-[0_0_24px_rgba(45,212,191,0.14)]">
+            <img src="/icon-omninet.svg" alt="OmniNet" className="w-6 h-6 rounded-lg shrink-0" />
+          </span>
+          <a href="/" className="font-semibold truncate text-white">
+            OmniNet
+          </a>
         </div>
 
-        {/* Single Menu button */}
         <div className="relative" ref={menuRef}>
           <button
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
-            className="px-3 py-1.5 rounded-xl border bg-white hover:bg-gray-50"
+            className={
+              'px-3 py-1.5 rounded-xl border border-white/15 bg-white/[0.07] text-sm text-white shadow-[0_0_24px_rgba(45,212,191,0.10)] backdrop-blur transition hover:bg-white/[0.12]'
+            }
           >
             Menu
           </button>
@@ -104,16 +112,16 @@ export default function StickyHeader() {
           {open && (
             <div
               role="menu"
-              className="absolute right-0 mt-2 w-56 rounded-2xl border bg-white shadow-lg p-2"
+              className={
+                'absolute right-0 mt-2 w-56 rounded-2xl border border-white/10 bg-[#08101b]/95 shadow-2xl p-2 backdrop-blur-xl'
+              }
             >
-              {/* Primary routes */}
               <Item href="/explore">Explore</Item>
               <Item href="/new">Create</Item>
               <Item href="/my">My</Item>
 
-              <div className="my-2 h-px bg-gray-100" />
+              <div className="my-2 h-px bg-white/10" />
 
-              {/* Auth-aware actions */}
               {signedIn ? (
                 <>
                   <Item href="/profile">Profile</Item>
@@ -123,9 +131,8 @@ export default function StickyHeader() {
                 <Item href="/login">Login</Item>
               )}
 
-              <div className="my-2 h-px bg-gray-100" />
+              <div className="my-2 h-px bg-white/10" />
 
-              {/* Helpful links (optional) */}
               <Item href="/success">Recent Donations</Item>
               <Item href="/leaderboard">Referral Leaderboard</Item>
             </div>

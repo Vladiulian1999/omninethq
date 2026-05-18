@@ -51,18 +51,18 @@ const CATEGORIES = ['all', 'rent', 'sell', 'teach', 'help'] as const
 type SortKey = 'reinforced' | 'new' | 'featured' | 'popular'
 
 function CategoryPill({ category }: { category: string | null }) {
-  const base = 'px-2 py-1 rounded-full text-xs'
+  const base = 'px-2 py-1 rounded-full text-xs border'
   switch ((category || '').toLowerCase()) {
     case 'rent':
-      return <span className={`${base} bg-blue-100 text-blue-800`}>rent</span>
+      return <span className={`${base} border-blue-300/20 bg-blue-300/10 text-blue-100`}>rent</span>
     case 'sell':
-      return <span className={`${base} bg-green-100 text-green-800`}>sell</span>
+      return <span className={`${base} border-emerald-300/20 bg-emerald-300/10 text-emerald-100`}>sell</span>
     case 'teach':
-      return <span className={`${base} bg-yellow-100 text-yellow-800`}>teach</span>
+      return <span className={`${base} border-yellow-300/20 bg-yellow-300/10 text-yellow-100`}>teach</span>
     case 'help':
-      return <span className={`${base} bg-purple-100 text-purple-800`}>help</span>
+      return <span className={`${base} border-purple-300/20 bg-purple-300/10 text-purple-100`}>help</span>
     default:
-      return <span className={`${base} bg-gray-100 text-gray-700`}>{category || 'other'}</span>
+      return <span className={`${base} border-slate-300/20 bg-slate-300/10 text-slate-200`}>{category || 'other'}</span>
   }
 }
 
@@ -283,15 +283,15 @@ export default function ExploreClient() {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://omninethq.co.uk'
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto text-slate-100">
       <div className="px-4 pt-4">
-        <BackButton />
+        <BackButton className="inline-flex items-center gap-2 text-sm text-slate-300 hover:text-white" />
       </div>
 
-      <div className="sticky z-30 bg-white/90 backdrop-blur border-b" style={{ top: 'var(--header-h)' }}>
+      <div className="sticky z-30 border-b border-white/10 bg-[#05070d]/82 backdrop-blur-xl" style={{ top: 'var(--header-h)' }}>
         <div className="px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
           <input
-            className="min-w-[180px] flex-1 border rounded-xl px-3 py-2 text-sm"
+            className="omni-input min-w-[180px] flex-1 rounded-xl px-3 py-2 text-sm outline-none focus:border-cyan-300/50"
             placeholder="Search services…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -302,7 +302,11 @@ export default function ExploreClient() {
               <button
                 key={c}
                 onClick={() => setCat(c)}
-                className={`px-3 py-2 rounded-xl border text-sm ${cat === c ? 'bg-black text-white' : 'hover:bg-gray-50'}`}
+                className={`rounded-xl border px-3 py-2 text-sm transition ${
+                  cat === c
+                    ? 'border-cyan-300/30 bg-cyan-300/15 text-cyan-100'
+                    : 'border-white/10 bg-white/[0.045] text-slate-200 hover:bg-white/[0.09]'
+                }`}
               >
                 {c}
               </button>
@@ -310,7 +314,7 @@ export default function ExploreClient() {
           </div>
 
           <select
-            className="border rounded-xl px-3 py-2 text-sm"
+            className="omni-input rounded-xl px-3 py-2 text-sm outline-none focus:border-cyan-300/50"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
           >
@@ -325,7 +329,7 @@ export default function ExploreClient() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
         {loading ? (
           Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="border rounded-2xl p-4 bg-white">
+            <div key={i} className="omni-card rounded-2xl p-4">
               <Skeleton className="h-5 w-2/3 mb-2" />
               <Skeleton className="h-4 w-5/6 mb-2" />
               <Skeleton className="h-4 w-3/4 mb-4" />
@@ -336,11 +340,11 @@ export default function ExploreClient() {
             </div>
           ))
         ) : filtered.length === 0 ? (
-          <div className="col-span-full text-center text-gray-500">
+          <div className="omni-card col-span-full rounded-2xl p-6 text-center text-slate-300">
             <p>No matching tags found.</p>
             <p className="mt-2">
               Want to create one?{' '}
-              <Link href="/new" className="text-blue-600 hover:underline">
+              <Link href="/new" className="text-cyan-200 hover:underline">
                 Click here
               </Link>
             </p>
@@ -351,35 +355,35 @@ export default function ExploreClient() {
 
             const primaryBadge =
               c.bucket === 'explore' ? (
-                <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-800">Explore</span>
+                <span className="text-xs px-2 py-1 rounded-full border border-purple-300/20 bg-purple-300/10 text-purple-100">Explore</span>
               ) : c.boost_state === 'boost' ? (
-                <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">Boosted</span>
+                <span className="text-xs px-2 py-1 rounded-full border border-emerald-300/20 bg-emerald-300/10 text-emerald-100">Boosted</span>
               ) : c.boost_state === 'throttle' ? (
-                <span className="text-xs px-2 py-1 rounded-full bg-rose-100 text-rose-800">Throttled</span>
+                <span className="text-xs px-2 py-1 rounded-full border border-rose-300/20 bg-rose-300/10 text-rose-100">Throttled</span>
               ) : (
-                <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">Top</span>
+                <span className="text-xs px-2 py-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">Top</span>
               )
 
             return (
-              <article key={`${c.block_id}_${t.id}`} className="border rounded-2xl p-4 bg-white">
+              <article key={`${c.block_id}_${t.id}`} className="omni-card rounded-2xl p-4 transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/25">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-semibold text-lg">{t.title}</h3>
+                    <h3 className="font-semibold text-lg text-white">{t.title}</h3>
                     {primaryBadge}
                   </div>
 
                   {t.featured ? (
-                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">Featured</span>
+                    <span className="text-xs px-2 py-1 rounded-full border border-yellow-300/20 bg-yellow-300/10 text-yellow-100">Featured</span>
                   ) : null}
                 </div>
 
-                {t.description && <p className="text-sm text-gray-600 mt-1 line-clamp-3">{t.description}</p>}
+                {t.description && <p className="text-sm text-slate-300 mt-1 line-clamp-3">{t.description}</p>}
 
-                <div className="mt-3 flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 flex-wrap">
                   <CategoryPill category={t.category} />
                   <span>👁 {t.views || 0}</span>
                   {typeof t.average_rating === 'number' && <span>⭐ {t.average_rating.toFixed(1)}</span>}
-                  <span className="text-gray-400">ID: {t.id}</span>
+                  <span className="text-slate-500">ID: {t.id}</span>
                 </div>
 
                 <div className="mt-4 flex items-center gap-2">
@@ -388,7 +392,7 @@ export default function ExploreClient() {
                     onClick={() => {
                       logExplore('explore_open_click', c).catch(() => {})
                     }}
-                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                    className="omni-button-primary rounded-xl px-3 py-2 text-sm font-medium transition hover:-translate-y-0.5"
                   >
                     Open
                   </Link>
@@ -396,7 +400,7 @@ export default function ExploreClient() {
                   <ShareButton
                     url={`${origin}/tag/${t.id}`}
                     title={`Check out "${t.title}" on OmniNet`}
-                    className="px-3 py-2 rounded-xl border hover:bg-gray-50 text-sm"
+                    className="omni-button-secondary rounded-xl px-3 py-2 text-sm transition hover:bg-white/[0.12]"
                     onClick={() => {
                       logExplore('explore_share_click', c).catch(() => {})
                     }}

@@ -83,18 +83,18 @@ export default function A2HSNudge() {
   if (!show) return null
 
   return (
-    <div className="fixed bottom-4 inset-x-4 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 text-slate-950 shadow-2xl backdrop-blur sm:bottom-5">
+    <div className="fixed bottom-4 inset-x-4 z-50 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#08101b]/95 p-4 text-slate-100 shadow-2xl backdrop-blur-xl sm:bottom-5">
       {platform === 'android' ? (
         <>
           <div className="text-sm leading-snug">
-            <div className="font-medium">Install OmniNet</div>
-            <div className="text-slate-600">Add OmniNet to your home screen for faster access.</div>
+            <div className="font-medium text-white">Install OmniNet</div>
+            <div className="text-slate-300">Add OmniNet to your home screen for faster access.</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button className="rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50" onClick={dismiss}>
+            <button className="rounded-xl border border-white/10 px-3 py-1.5 text-sm hover:bg-white/10" onClick={dismiss}>
               Not now
             </button>
-            <button className="rounded-xl bg-slate-950 px-3 py-1.5 text-sm text-white hover:bg-slate-800" onClick={installAndroid}>
+            <button className="omni-button-primary rounded-xl px-3 py-1.5 text-sm font-medium" onClick={installAndroid}>
               Add
             </button>
           </div>
@@ -102,22 +102,22 @@ export default function A2HSNudge() {
       ) : platform === 'ios-safari' ? (
         <>
           <div className="text-sm leading-snug">
-            <div className="font-medium">Add OmniNet to your home screen</div>
-            <div className="text-slate-600">
+            <div className="font-medium text-white">Add OmniNet to your home screen</div>
+            <div className="text-slate-300">
               Tap <span className="font-medium">Share</span>, then <span className="font-medium">Add to Home Screen</span>.
             </div>
           </div>
-          <button className="shrink-0 rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50" onClick={dismiss}>
+          <button className="shrink-0 rounded-xl border border-white/10 px-3 py-1.5 text-sm hover:bg-white/10" onClick={dismiss}>
             Got it
           </button>
         </>
       ) : platform === 'ios-other' ? (
         <>
           <div className="text-sm leading-snug">
-            <div className="font-medium">Open in Safari to install</div>
-            <div className="text-slate-600">iPhone only allows Add to Home Screen from Safari.</div>
+            <div className="font-medium text-white">Open in Safari to install</div>
+            <div className="text-slate-300">iPhone only allows Add to Home Screen from Safari.</div>
           </div>
-          <button className="shrink-0 rounded-xl border px-3 py-1.5 text-sm hover:bg-slate-50" onClick={dismiss}>
+          <button className="shrink-0 rounded-xl border border-white/10 px-3 py-1.5 text-sm hover:bg-white/10" onClick={dismiss}>
             Okay
           </button>
         </>

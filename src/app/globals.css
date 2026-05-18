@@ -1,3 +1,57 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .omni-page-bg {
+    background:
+      radial-gradient(circle at 50% -10%, rgba(45, 212, 191, 0.18), transparent 34%),
+      radial-gradient(circle at 12% 24%, rgba(59, 130, 246, 0.14), transparent 30%),
+      radial-gradient(circle at 88% 70%, rgba(168, 85, 247, 0.12), transparent 30%),
+      #05070d;
+    color: #e5eefb;
+  }
+
+  .omni-grid-bg {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .omni-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.055);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(18px);
+  }
+
+  .omni-card {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.065);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(16px);
+  }
+
+  .omni-input {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(5, 7, 13, 0.62);
+    color: #f8fafc;
+  }
+
+  .omni-input::placeholder {
+    color: rgba(203, 213, 225, 0.72);
+  }
+
+  .omni-button-primary {
+    background: linear-gradient(90deg, #67e8f9, #6ee7b7, #d9f99d);
+    color: #07111c;
+    box-shadow: 0 16px 50px rgba(45, 212, 191, 0.2);
+  }
+
+  .omni-button-secondary {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.07);
+    color: #f8fafc;
+  }
+}
