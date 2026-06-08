@@ -17,10 +17,44 @@ const industries = ['Therapists', 'Tutors', 'Consultants', 'Driving Instructors'
 
 export default function CommitmentPage() {
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSubmitted(true)
+    setSubmitting(true)
+    setSubmitted(false)
+    setErrorMessage(null)
+
+    const form = event.currentTarget
+    const formData = new FormData(form)
+
+    try {
+      const response = await fetch('/api/commitment-waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.get('name'),
+          email: formData.get('email'),
+          businessType: formData.get('businessType'),
+          biggestProblem: formData.get('biggestProblem'),
+        }),
+      })
+
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok || !result?.ok) {
+        setErrorMessage(result?.error || 'We could not save your signup right now. Please try again.')
+        return
+      }
+
+      setSubmitted(true)
+      form.reset()
+    } catch {
+      setErrorMessage('We could not save your signup right now. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -183,21 +217,28 @@ export default function CommitmentPage() {
                 Biggest cancellation/no-show problem
                 <textarea
                   className="min-h-28 rounded-xl border border-white/15 bg-[#05070d]/70 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300"
-                  name="problem"
+                  name="biggestProblem"
                   required
                 />
               </label>
 
               <button
                 type="submit"
+                disabled={submitting}
                 className="mt-2 rounded-2xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-lime-200 px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-[0_18px_60px_rgba(45,212,191,0.24)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_70px_rgba(45,212,191,0.34)]"
               >
-                Join Early Access
+                {submitting ? 'Joining...' : 'Join Early Access'}
               </button>
 
               {submitted ? (
                 <p className="rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-3 text-sm font-medium text-emerald-100">
-                  Thanks — you're on the early access list.
+                  {"Thanks \u2014 you're on the early access list."}
+                </p>
+              ) : null}
+
+              {errorMessage ? (
+                <p className="rounded-xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm font-medium text-rose-100">
+                  {errorMessage}
                 </p>
               ) : null}
             </form>

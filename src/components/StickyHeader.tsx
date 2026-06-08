@@ -44,6 +44,10 @@ export default function StickyHeader() {
     router.push('/')
   }
 
+  if (pathname === '/commitment') {
+    return null
+  }
+
   const Item = ({
     href,
     children,

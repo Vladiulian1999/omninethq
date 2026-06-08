@@ -1,5 +1,6 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 type BeforeInstallPromptEvent = Event & {
@@ -29,11 +30,13 @@ function isStandalone() {
 }
 
 export default function A2HSNudge() {
+  const pathname = usePathname()
   const [show, setShow] = useState(false)
   const [platform, setPlatform] = useState<'ios-safari' | 'ios-other' | 'android' | 'other'>('other')
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
 
   useEffect(() => {
+    if (pathname === '/commitment') return
     if (localStorage.getItem(DISMISS_KEY)) return
     if (isStandalone()) return
 
@@ -64,7 +67,7 @@ export default function A2HSNudge() {
     }
 
     window.setTimeout(() => setShow(true), 1800)
-  }, [])
+  }, [pathname])
 
   async function installAndroid() {
     if (!deferred) return
@@ -80,7 +83,7 @@ export default function A2HSNudge() {
     setShow(false)
   }
 
-  if (!show) return null
+  if (pathname === '/commitment' || !show) return null
 
   return (
     <div className="fixed inset-x-4 bottom-4 z-[80] mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#08101b]/95 p-4 text-slate-100 shadow-2xl backdrop-blur-xl sm:bottom-5">
