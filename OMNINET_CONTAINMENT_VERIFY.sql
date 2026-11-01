@@ -7,7 +7,9 @@ SET LOCAL search_path = pg_catalog;
 -- Includes every overload across schemas and missing-function rows. The draft
 -- migration targets public only; unexpected schemas require separate review.
 WITH wanted(name) AS (
-  VALUES ('admin_delete_tag_cascade_by_uuid'), ('delete_tag_cascade'),
+  VALUES ('admin_delete_tag_cascade'), ('admin_delete_tag_orphan_by_uuid'),
+         ('demo_confirm_conversion'),
+         ('admin_delete_tag_cascade_by_uuid'), ('delete_tag_cascade'),
          ('create_block_autopause'), ('transition_payment_confirmed'),
          ('transition_checkout_created'), ('transition_action_claimed'),
          ('transition_owner_acknowledged'), ('transition_owner_contacted'),
@@ -61,6 +63,8 @@ SELECT n.nspname AS schema_name, p.oid::regprocedure::text AS signature,
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
 WHERE p.prokind = 'f' AND p.proname IN (
+  'admin_delete_tag_cascade', 'admin_delete_tag_orphan_by_uuid',
+  'demo_confirm_conversion',
   'admin_delete_tag_cascade_by_uuid', 'delete_tag_cascade', 'create_block_autopause',
   'transition_payment_confirmed', 'transition_checkout_created',
   'transition_action_claimed', 'transition_owner_acknowledged',

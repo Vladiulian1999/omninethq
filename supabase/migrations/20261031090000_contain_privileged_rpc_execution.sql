@@ -1,8 +1,7 @@
 -- REVIEW DRAFT ONLY. Do not apply without reviewing the companion verification
 -- output and docs/security-containment-plan.md. No function bodies are changed.
--- Intentional outage: browser-side My Tags deletion stops working until replaced.
--- Remaining exposure: /api/blocks/create still lacks caller authorisation.
--- Live signatures for several functions are unavailable in the repository.
+-- Deploy authenticated offer creation and owner deletion routes first.
+-- Exact signatures are resolved from the catalog, including every overload.
 -- Resolve exact, schema-qualified identity signatures from pg_proc; never guess
 -- types, use ALL FUNCTIONS IN SCHEMA, or omit overload argument lists.
 BEGIN;
@@ -13,6 +12,8 @@ SET LOCAL search_path = pg_catalog;
 DO $containment$
 DECLARE
   target_names constant text[] := ARRAY[
+    'admin_delete_tag_cascade', 'admin_delete_tag_orphan_by_uuid',
+    'demo_confirm_conversion',
     'admin_delete_tag_cascade_by_uuid', 'delete_tag_cascade',
     'create_block_autopause', 'transition_payment_confirmed',
     'transition_checkout_created', 'transition_action_claimed',
@@ -64,8 +65,8 @@ BEGIN
       AND p.prokind = 'f'
     ORDER BY p.proname, p.oid
   LOOP
-    -- Grant first, then revoke, in the same transaction. Owners retain their
-    -- inherent rights. No unrelated roles, public claim RPCs or schemas change.
+    -- Grant first, then revoke, in the same transaction. Ownership is unchanged.
+    -- No unrelated roles, public claim RPCs or schemas change.
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', target.signature);
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated',
                    target.signature);
