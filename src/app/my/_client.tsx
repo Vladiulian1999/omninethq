@@ -69,18 +69,22 @@ export default function MyTagsClient() {
     if (!confirm('Are you sure you want to delete this tag?')) return
     setDeletingId(id)
 
-    const { error, data } = await supabase.rpc('delete_tag_cascade', { tag_id: id })
-
-    if (error) {
-      toast.error(error.message || 'Failed to delete tag')
-    } else if (!data) {
-      toast.error('Delete failed')
-    } else {
+    try {
+      const response = await fetch('/api/tags/delete', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_id: id }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result?.ok) throw new Error('Delete failed')
       setTags((prev) => prev.filter((tag) => tag.id !== id))
       toast.success('Tag deleted')
+    } catch {
+      toast.error('Failed to delete tag')
+    } finally {
+      setDeletingId(null)
     }
-
-    setDeletingId(null)
   }
 
   return (

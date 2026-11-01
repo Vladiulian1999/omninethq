@@ -1,6 +1,8 @@
 // src/app/api/blocks/create/route.ts
 import { NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseServer } from "@/lib/supabase-server";
+import { isSameOriginMutation } from "@/lib/same-origin-mutation";
 
 type CreateBlockPayload = {
   message_id: string;
@@ -52,6 +54,11 @@ function isIsoDate(s: unknown): s is string {
   return !Number.isNaN(d.getTime());
 }
 
+function isPgInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value)
+    && value >= -2147483648 && value <= 2147483647;
+}
+
 function jsonError(status: number, body: Record<string, unknown>) {
   return NextResponse.json(body, { status });
 }
@@ -90,7 +97,14 @@ async function fetchConflictingLiveBlock(
 
 export async function POST(req: Request) {
   try {
-    const supabase = supabaseAdmin();
+    const authClient = await getSupabaseServer();
+    const { data: authData, error: authError } = await authClient.auth.getUser();
+    if (authError || !authData.user) {
+      return jsonError(401, { ok: false, error: "UNAUTHENTICATED" });
+    }
+    if (!isSameOriginMutation(req)) {
+      return jsonError(403, { ok: false, error: "FORBIDDEN" });
+    }
 
     let payload: CreateBlockPayload;
     try {
@@ -99,8 +113,11 @@ export async function POST(req: Request) {
       return jsonError(400, { ok: false, error: "INVALID_JSON" });
     }
 
-    const message_id = (payload.message_id || "").trim();
-    const title = (payload.title || "").trim();
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return jsonError(400, { ok: false, error: "INVALID_JSON" });
+    }
+    const message_id = typeof payload.message_id === "string" ? payload.message_id.trim() : "";
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
     if (!message_id) return jsonError(400, { ok: false, error: "message_id is required" });
     if (!title) return jsonError(400, { ok: false, error: "title is required" });
 
@@ -154,11 +171,11 @@ export async function POST(req: Request) {
         ? null
         : payload.capacity_remaining;
 
-    if (!Number.isFinite(capacity_total) || capacity_total < 1) {
+    if (!isPgInteger(capacity_total) || capacity_total < 1) {
       return jsonError(400, { ok: false, error: "capacity_total must be >= 1" });
     }
     if (capacity_remaining !== null) {
-      if (!Number.isFinite(capacity_remaining)) {
+      if (!isPgInteger(capacity_remaining)) {
         return jsonError(400, { ok: false, error: "capacity_remaining must be a number" });
       }
       if (capacity_remaining < 0 || capacity_remaining > capacity_total) {
@@ -177,7 +194,12 @@ export async function POST(req: Request) {
     const sort_rank = payload.sort_rank ?? 0;
     const description = payload.description ?? null;
 
+    if (!isPgInteger(price_pence) || price_pence < 0 || !isPgInteger(sort_rank)) {
+      return jsonError(400, { ok: false, error: "INVALID_INTEGER_PARAMETER" });
+    }
+
     // Owner lookup (canonical)
+    const supabase = supabaseAdmin();
     const { data: msg, error: msgErr } = await supabase
       .from("messages")
       .select("id, user_id")
@@ -185,13 +207,15 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (msgErr) {
-      return jsonError(500, { ok: false, error: "FAILED_TO_LOOKUP_MESSAGE", details: msgErr });
+      return jsonError(500, { ok: false, error: "FAILED_TO_LOOKUP_MESSAGE" });
     }
     if (!msg?.id) {
       return jsonError(404, { ok: false, error: "MESSAGE_NOT_FOUND", message_id });
     }
-    if (!msg.user_id) {
-      return jsonError(400, { ok: false, error: "MESSAGE_HAS_NO_OWNER", message_id });
+    // There is no verified business-membership model; only canonical owners
+    // are authorised. Browser owner_id or metadata never establishes access.
+    if (!msg.user_id || msg.user_id !== authData.user.id) {
+      return jsonError(403, { ok: false, error: "FORBIDDEN" });
     }
 
     const meta = {
@@ -277,8 +301,8 @@ export async function POST(req: Request) {
     const paused_ids = Array.isArray((rpcData as any)?.paused_ids) ? (rpcData as any).paused_ids : [];
 
     return NextResponse.json({ ok, block, paused_ids });
-  } catch (e: any) {
-    return jsonError(500, { ok: false, error: "SERVER_ERROR", message: String(e?.message ?? e) });
+  } catch {
+    return jsonError(500, { ok: false, error: "SERVER_ERROR" });
   }
 }
 
